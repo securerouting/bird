@@ -1,9 +1,9 @@
 /*
- *	BIRD -- Border Gateway Protocol Configuration
+ *   BIRD -- The Border Gateway Protocol
  *
- *	(c) 2000 Martin Mares <mj@ucw.cz>
+ *   (c) 2011 SPARTA, Inc.
  *
- *	Can be freely distributed and used under the terms of the GNU GPL.
+ *   XXX: License
  */
 
 CF_HDR
