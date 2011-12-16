@@ -3,3 +3,5 @@ root-rel=../../../
 dir-name=proto/bgp/bgpsec
 
 include ../../../Rules
+
+tests: $(objs)
