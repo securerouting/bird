@@ -34,7 +34,7 @@ typedef void xxxunknown;
  * the 'subject_key_ident' using the algorithm indicated by
  * 'signature_algorithm'.  The resulting signature is placed in the
  * pre-allocated 'signature' block, who's pre-allocated length bust be
- * stored in 'sig_len'.
+ * stored in 'signature_len'.
  *
  * Internally this looks up the certificate and then calls
  * bgpsec_sign_data_with_cert(), defined below.
@@ -42,20 +42,44 @@ typedef void xxxunknown;
  * Returns: The length of the signature actually created, or -1 on error.
  */
 int bgpsec_sign_data_with_fp(byte *octets, int octets_len, xxxunknown *fp,
-                             int algorithm, byte *signature, int in_sig_len);
+                             int algorithm, byte *signature,
+                             int in_signature_len);
 
 /*
  * Signs a blob of octets in 'octets' with the certificate 'cert' using
  * the algorithm indicated by 'signature_algorithm'.  The resulting signature
  * is placed in the pre-allocated 'signature' block, who's
- * pre-allocated length bust be stored in 'sig_len'.
+ * pre-allocated length bust be stored in 'signature_len'.
  *
  * Returns: The length of the signature actually created, or -1 on error.
  */
 int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
                                xxxunknown *cert, int signature_algorithm,
-                               byte *signature, int sig_len);
+                               byte *signature, int signature_len);
 
 
+#define BGPSEC_SIGNATURE_MATCH    0
+#define BGPSEC_SIGNATURE_ERROR    1
+#define BGPSEC_SIGNATURE_MISMATCH 2
+/*
+ * Validates a signature on a block and returns an error code if the
+ * signature dosen't match.  The data to check the signature for
+ * should be in 'octets' with length 'octets_len', and the certificate
+ * to check with should be in 'cert' using algorithm
+ * 'signature_algorithm'.  The signature from the bgp packet should
+ * should be in 'signature' with length 'signature_len'.
+ *
+ * Returns:
+ *   Success: BGPSEC_SIGNATURE_MATCH
+ *   Failure: BGPSEC_SIGNATURE_ERROR
+ *            BGPSEC_SIGNATURE_MISMATCH
+ */
+int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
+                                      xxxunknown *cert, int signature_algorithm,
+                                      byte *signature, int signature_len);
+
+int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
+                                    xxxunknown *fp, int signature_algorithm,
+                                    byte *signature, int signature_len);
 
 #endif 
