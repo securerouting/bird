@@ -134,9 +134,9 @@ krt_sock_send(int cmd, rte *e)
     _I0(gw) = 0xfe800000 | (i->index & 0x0000ffff);
 #endif
 
-  fill_in_sockaddr(&dst, net->n.prefix, 0);
-  fill_in_sockaddr(&mask, ipa_mkmask(net->n.pxlen), 0);
-  fill_in_sockaddr(&gate, gw, 0);
+  fill_in_sockaddr(&dst, net->n.prefix, NULL, 0);
+  fill_in_sockaddr(&mask, ipa_mkmask(net->n.pxlen), NULL, 0);
+  fill_in_sockaddr(&gate, gw, NULL, 0);
 
   switch (a->dest)
   {
@@ -163,7 +163,7 @@ krt_sock_send(int cmd, rte *e)
           return -1;
         }
 
-        fill_in_sockaddr(&gate, i->addr->ip, 0);
+        fill_in_sockaddr(&gate, i->addr->ip, NULL, 0);
         msg.rtm.rtm_addrs |= RTA_GATEWAY;
       }
       break;
@@ -274,19 +274,19 @@ krt_read_rt(struct ks_msg *msg, struct krt_proto *p, int scan)
   GETADDR(&mask, RTA_NETMASK);
 
   if (sa_family_check(&dst))
-    get_sockaddr(&dst, &idst, NULL, 0);
+    get_sockaddr(&dst, &idst, NULL, NULL, 0);
   else
     SKIP("invalid DST");
 
   /* We will check later whether we have valid gateway addr */
   if (sa_family_check(&gate))
-    get_sockaddr(&gate, &igate, NULL, 0);
+    get_sockaddr(&gate, &igate, NULL, NULL, 0);
   else
     igate = IPA_NONE;
 
   /* We do not test family for RTA_NETMASK, because BSD sends us
      some strange values, but interpreting them as IPv4/IPv6 works */
-  get_sockaddr(&mask, &imask, NULL, 0);
+  get_sockaddr(&mask, &imask, NULL, NULL, 0);
 
   int c = ipa_classify_net(idst);
   if ((c < 0) || !(c & IADDR_HOST) || ((c & IADDR_SCOPE_MASK) <= SCOPE_LINK))
@@ -410,14 +410,42 @@ krt_read_rt(struct ks_msg *msg, struct krt_proto *p, int scan)
 }
 
 static void
+krt_read_ifannounce(struct ks_msg *msg)
+{
+  struct if_announcemsghdr *ifam = (struct if_announcemsghdr *)&msg->rtm;
+
+  if (ifam->ifan_what == IFAN_ARRIVAL)
+  {
+    /* Not enough info to create the iface, so we just trigger iface scan */
+    kif_request_scan();
+  }
+  else if (ifam->ifan_what == IFAN_DEPARTURE)
+  {
+    struct iface *iface = if_find_by_index(ifam->ifan_index);
+
+    /* Interface is destroyed */
+    if (!iface)
+    {
+      DBG("KRT: unknown interface (%s, #%d) going down. Ignoring\n", ifam->ifan_name, ifam->ifan_index);
+      return;
+    }
+
+    if_delete(iface);
+  }
+
+  DBG("KRT: IFANNOUNCE what: %d index %d name %s\n", ifam->ifan_what, ifam->ifan_index, ifam->ifan_name);
+}
+
+static void
 krt_read_ifinfo(struct ks_msg *msg)
 {
   struct if_msghdr *ifm = (struct if_msghdr *)&msg->rtm;
   void *body = (void *)(ifm + 1);
   struct sockaddr_dl *dl = NULL;
   unsigned int i;
-  struct iface *iface = NULL, f;
+  struct iface *iface = NULL, f = {};
   int fl = ifm->ifm_flags;
+  int nlen = 0;
 
   for (i = 1; i<=RTA_IFP; i <<= 1)
   {
@@ -432,31 +460,42 @@ krt_read_ifinfo(struct ks_msg *msg)
     }
   }
 
-  if(dl && (dl->sdl_family != AF_LINK))
+  if (dl && (dl->sdl_family != AF_LINK))
   {
-    log("Ignoring strange IFINFO");
+    log(L_WARN "Ignoring strange IFINFO");
     return;
   }
 
-  iface = if_find_by_index(ifm->ifm_index);
+  if (dl)
+    nlen = MIN(sizeof(f.name)-1, dl->sdl_nlen);
 
-  if(!iface)
+  /* Note that asynchronous IFINFO messages do not contain iface
+     name, so we have to found an existing iface by iface index */
+
+  iface = if_find_by_index(ifm->ifm_index);
+  if (!iface)
   {
     /* New interface */
-    if(!dl) return;	/* No interface name, ignoring */
+    if (!dl)
+      return;	/* No interface name, ignoring */
 
-    bzero(&f, sizeof(f));
-    f.index = ifm->ifm_index;
-    memcpy(f.name, dl->sdl_data, MIN(sizeof(f.name)-1, dl->sdl_nlen));
-    DBG("New interface '%s' found", f.name);
+    memcpy(f.name, dl->sdl_data, nlen);
+    DBG("New interface '%s' found\n", f.name);
+  }
+  else if (dl && memcmp(iface->name, dl->sdl_data, nlen))
+  {
+    /* Interface renamed */
+    if_delete(iface);
+    memcpy(f.name, dl->sdl_data, nlen);
   }
   else
   {
-    memcpy(&f, iface, sizeof(struct iface));
+    /* Old interface */
+    memcpy(f.name, iface->name, sizeof(f.name));
   }
 
+  f.index = ifm->ifm_index;
   f.mtu = ifm->ifm_data.ifi_mtu;
-  f.flags = 0;
 
   if (fl & IFF_UP)
     f.flags |= IF_ADMIN_UP;
@@ -471,8 +510,7 @@ krt_read_ifinfo(struct ks_msg *msg)
   else
     f.flags |= IF_MULTIACCESS;      /* NBMA */
 
-  if((!iface) || memcmp(&f, iface, sizeof(struct iface)))
-    if_update(&f);	/* Just if something happens */
+  if_update(&f);
 }
 
 static void
@@ -512,9 +550,9 @@ krt_read_addr(struct ks_msg *msg)
   if (!sa_family_check(&addr))
     return;
 
-  get_sockaddr(&addr, &iaddr, NULL, 0);
-  get_sockaddr(&mask, &imask, NULL, 0);
-  get_sockaddr(&brd, &ibrd, NULL, 0);
+  get_sockaddr(&addr, &iaddr, NULL, NULL, 0);
+  get_sockaddr(&mask, &imask, NULL, NULL, 0);
+  get_sockaddr(&brd, &ibrd, NULL, NULL, 0);
 
   if ((masklen = ipa_mklen(imask)) < 0)
   {
@@ -544,7 +582,12 @@ krt_read_addr(struct ks_msg *msg)
     _I0(ifa.ip) = 0xfe800000;
 #endif
 
+#ifdef IPV6
+  /* Why not the same check also for IPv4? */
+  if ((iface->flags & IF_MULTIACCESS) || (masklen != BITS_PER_IP_ADDRESS))
+#else
   if (iface->flags & IF_MULTIACCESS)
+#endif
   {
     ifa.prefix = ipa_and(ifa.ip, ipa_mkmask(masklen));
 
@@ -582,6 +625,9 @@ krt_read_msg(struct proto *p, struct ks_msg *msg, int scan)
     case RTM_ADD:
     case RTM_DELETE:
       krt_read_rt(msg, (struct krt_proto *)p, scan);
+      break;
+    case RTM_IFANNOUNCE:
+      krt_read_ifannounce(msg);
       break;
     case RTM_IFINFO:
       krt_read_ifinfo(msg);
