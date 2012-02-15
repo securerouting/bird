@@ -34,6 +34,9 @@ struct bgp_config {
   int capabilities;			/* Enable capability handshake [RFC3392] */
   int enable_refresh;			/* Enable local support for route refresh [RFC2918] */
   int enable_as4;			/* Enable local support for 4B AS numbers [RFC4893] */
+    /* XXX BGPSec XXX*/
+  int bgpsec;               /* Whether neighbor is BGPSec peer */
+
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
   int rs_client;			/* Whether neighbor is RS client of me */
@@ -76,6 +79,10 @@ struct bgp_conn {
   int want_as4_support;			/* Connection tries to establish AS4 session */
   int peer_as4_support;			/* Peer supports 4B AS numbers [RFC4893] */
   int peer_refresh_support;		/* Peer supports route refresh [RFC2918] */
+    /* XXX BGPSec XXX*/
+  int want_bgpsec_support;      /* Connection tries to establish BGPSec connection*/
+  int peer_bgpsec_support;      /* Peer supports BGPSec */
+
   unsigned hold_time, keepalive_time;	/* Times calculated from my and neighbor's requirements */
 };
 
@@ -86,6 +93,9 @@ struct bgp_proto {
   int start_state;			/* Substates that partitions BS_START */
   int is_internal;			/* Internal BGP connection (local_as == remote_as) */
   int as4_session;			/* Session uses 4B AS numbers in AS_PATH (both sides support it) */
+    /* XXX BGPSec XXX*/
+  int is_bgpsec;            /* Whether neighbor is BGPSec peer */
+
   u32 local_id;				/* BGP identifier of this router */
   u32 remote_id;			/* BGP identifier of the neighbor */
   u32 rr_cluster_id;			/* Route reflector cluster ID */
@@ -136,6 +146,10 @@ struct bgp_bucket {
 #define BGP_MAX_PACKET_LENGTH	4096
 #define BGP_RX_BUFFER_SIZE	4096
 #define BGP_TX_BUFFER_SIZE	BGP_MAX_PACKET_LENGTH
+
+/* BGPSec constants */
+#define BGPSEC_VERSION	    0
+#define BGPSEC_CAPABILITY	99  /* xxx currently an arbitrary value */
 
 extern struct linpool *bgp_linpool;
 
