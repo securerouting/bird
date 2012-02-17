@@ -213,8 +213,8 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
 
   /* xxx */
   BGP_TRACE(D_PACKETS, "Adding BGPSec capability? \'%d\', vers \'%d\'",
-            conn->want_bgpsec_support, BGPSEC_VERSION);
-  if (conn->want_bgpsec_support)
+            conn->bgpsec, BGPSEC_VERSION);
+  if (conn->bgpsec)
     cap = bgp_put_cap_bgpsec(conn, cap);
 
   cap_len = cap - buf - 12;
@@ -674,24 +674,27 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 
 	case BGPSEC_CAPABILITY: /* BPGSEC capability, currently arbitrary */
       afi = get_u16(opt + 3);
-      if ( BGPSEC_VERSION == (opt[2] & 0x0F) )
+      if ( BGPSEC_VERSION == (opt[2] & 0x0F) ) {
         BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matechs : %d", (opt[2] & 0x0F));
+        conn->peer_bgpsec_support = 1;
+      }
 
-      if (opt[2] & 0x80) {
+      if (opt[2] & 0x80) { 
         BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
+        p->bgpsec_send = 1;
       }
       if (opt[2] & 0x40) {
         BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
-      }
-      if (opt[2] & 0x40) {
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
+        p->bgpsec_receive = 1;
       }
 
       if (BGP_AF_IPV4 == afi) {
         BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV4 Address Family : %d", afi);
+        p->bgpsec_ipv4 = 1;
       }
       else if (BGP_AF_IPV6 == afi) {
         BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
+        p->bgpsec_ipv6 = 1;
       }
       break;
 	  /* We can safely ignore all other capabilities */

@@ -82,8 +82,8 @@ struct bgp_conn {
   int peer_as4_support;			/* Peer supports 4B AS numbers [RFC4893] */
   int peer_refresh_support;		/* Peer supports route refresh [RFC2918] */
     /* XXX BGPSec XXX*/
-  int want_bgpsec_support;      /* Connection tries to establish BGPSec connection*/
-  int peer_bgpsec_support;      /* Peer supports BGPSec */
+  int bgpsec;                /* Connection is BGPSec connection*/
+  int peer_bgpsec_support;   /* Peer supports BGPSec */
 
   unsigned hold_time, keepalive_time;	/* Times calculated from my and neighbor's requirements */
 };
@@ -96,7 +96,10 @@ struct bgp_proto {
   int is_internal;			/* Internal BGP connection (local_as == remote_as) */
   int as4_session;			/* Session uses 4B AS numbers in AS_PATH (both sides support it) */
     /* XXX BGPSec XXX*/
-  int is_bgpsec;            /* Whether neighbor is BGPSec peer */
+  int bgpsec_send;           /* Sender can send BGPSec messages */
+  int bgpsec_receive;        /* Sender can receive BGPSec messages */
+  int bgpsec_ipv4;           /* Sender uses BGPSec over iPv4 */
+  int bgpsec_ipv6;           /* Sender uses BGPSec over iPv6 */
 
   u32 local_id;				/* BGP identifier of this router */
   u32 remote_id;			/* BGP identifier of the neighbor */
