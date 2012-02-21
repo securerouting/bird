@@ -45,7 +45,7 @@ bgp_proto_start: proto_start BGP {
      BGP_CFG->error_delay_time_max = 300;
      BGP_CFG->enable_refresh = 1;
      BGP_CFG->enable_as4 = 1;
-     BGP_CFG->bgpsec = 1;
+     BGP_CFG->enable_bgpsec = 1;
      BGP_CFG->capabilities = 2;
      BGP_CFG->advertise_ipv4 = 1;
      BGP_CFG->interpret_communities = 1;
@@ -105,7 +105,7 @@ bgp_proto:
  | bgp_proto INTERPRET COMMUNITIES bool ';' { BGP_CFG->interpret_communities = $4; }
  | bgp_proto IGP TABLE rtable ';' { BGP_CFG->igp_table = $4; }
  | bgp_proto TTL SECURITY bool ';' { BGP_CFG->ttl_security = $4; }
- | bgp_proto BGPSEC bool ';' { BGP_CFG->bgpsec = $3; }
+ | bgp_proto BGPSEC bool ';' { BGP_CFG->enable_bgpsec = $3; }
  ;
 
 CF_ADDTO(dynamic_attr, BGP_ORIGIN

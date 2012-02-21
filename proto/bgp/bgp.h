@@ -37,7 +37,7 @@ struct bgp_config {
   int enable_refresh;			/* Enable local support for route refresh [RFC2918] */
   int enable_as4;			/* Enable local support for 4B AS numbers [RFC4893] */
     /* XXX BGPSec XXX*/
-  int bgpsec;               /* Whether neighbor is BGPSec peer */
+  int enable_bgpsec;        /* Whether neighbor should be a BGPSec peer */
 
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
@@ -82,8 +82,8 @@ struct bgp_conn {
   int peer_as4_support;			/* Peer supports 4B AS numbers [RFC4893] */
   int peer_refresh_support;		/* Peer supports route refresh [RFC2918] */
     /* XXX BGPSec XXX*/
-  int bgpsec;                /* Connection is BGPSec connection*/
-  int peer_bgpsec_support;   /* Peer supports BGPSec */
+  int bgpsec;                  /* Connection is BGPSec connection*/
+  int peer_bgpsec_support;     /* Peer supports BGPSec */
 
   unsigned hold_time, keepalive_time;	/* Times calculated from my and neighbor's requirements */
 };

@@ -212,9 +212,9 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
     cap = bgp_put_cap_as4(conn, cap);
 
   /* xxx */
-  BGP_TRACE(D_PACKETS, "Adding BGPSec capability? \'%d\', vers \'%d\'",
-            conn->bgpsec, BGPSEC_VERSION);
-  if (conn->bgpsec)
+  BGP_TRACE(D_PACKETS, "Adding BGPSec capability? \'%d\', vers \'%d\' enable_as4 \'%d\'",
+            p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
+  if (p->cf->enable_bgpsec)
     cap = bgp_put_cap_bgpsec(conn, cap);
 
   cap_len = cap - buf - 12;
