@@ -212,7 +212,7 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
     cap = bgp_put_cap_as4(conn, cap);
 
   /* xxx */
-  BGP_TRACE(D_PACKETS, "Adding BGPSec capability? \'%d\', vers \'%d\' enable_as4 \'%d\'",
+  BGP_TRACE(D_PACKETS, "Add BGPSec capability? \'%d\', vers \'%d\'",
             p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
   if (p->cf->enable_bgpsec)
     cap = bgp_put_cap_bgpsec(conn, cap);
@@ -675,7 +675,7 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	case BGPSEC_CAPABILITY: /* BPGSEC capability, currently arbitrary */
       afi = get_u16(opt + 3);
       if ( BGPSEC_VERSION == (opt[2] & 0x0F) ) {
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matechs : %d", (opt[2] & 0x0F));
+        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matchs : %d", (opt[2] & 0x0F));
         conn->peer_bgpsec_support = 1;
       }
 
