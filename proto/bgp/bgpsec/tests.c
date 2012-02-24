@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
                                                 sizeof(data_to_sign),
                                                 key_data,
                                                 signature_algorithms[algorithm_count],
-                                                signature, sizeof(signature));
+                                                signature, signature_len);
         RESULT(("cert sign: verify signature result: %d (should be %d)",
                 ret, BGPSEC_SIGNATURE_MATCH),
                ret == BGPSEC_SIGNATURE_MATCH);

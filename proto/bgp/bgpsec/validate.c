@@ -67,7 +67,7 @@ int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
             return -1;
         }
 
-        memcpy(buffer, signature, length);
+        memcpy(signature, buffer, length);
         return length;
     }
     default:
@@ -83,14 +83,12 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
     byte generated_signature[1024];
     int  generated_signature_len;
 
-    bgpsec_key_data keys;
-
     /* first we need to sign with the expected certificate and see if
        we can generate an identical signature */
 
     /* XXX: don't verify by signing silly; verify by verifying... */
     generated_signature_len = 
-        bgpsec_sign_data_with_cert(octets, octets_len, keys,
+        bgpsec_sign_data_with_cert(octets, octets_len, cert,
                                    signature_algorithm, generated_signature,
                                    sizeof(generated_signature));
 
