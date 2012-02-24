@@ -11,8 +11,8 @@
 int main(int argc, char **argv) {
     byte signature[1024];
     int  signature_len = sizeof(signature);
-    xxxunknown *cert;
-    xxxunknown *fp;
+    bgpsec_key_data key_data;
+    xxxunknown *fp = 0;
     int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
@@ -24,12 +24,27 @@ int main(int argc, char **argv) {
     int algorithm_count = 0;
 
     int ret;
-    
+
     while(signature_algorithms[algorithm_count] > 0) {
+        bgpsec_key_data key_data;
+
+        switch (signature_algorithms[algorithm_count]) {
+        case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
+            key_data.ecdsa_key = EC_KEY_new_by_curve_name(NID_secp192k1);
+            printf("here: %p\n", key_data.ecdsa_key);
+            /* XXX: need the right group */
+            // key_data.ecdsa_key->group = EC_GROUP_new_by_nid(NID_secp192k1);
+            EC_KEY_generate_key(key_data.ecdsa_key);
+            break;
+        default:
+            printf("key setup failure; unknown algorithm\n");
+            exit(42);
+        }
 
         /* generate a signature using a certificate */
         signature_len =
-            bgpsec_sign_data_with_cert(data_to_sign, sizeof(data_to_sign), cert,
+            bgpsec_sign_data_with_cert(data_to_sign, sizeof(data_to_sign),
+                                       key_data,
                                        signature_algorithms[algorithm_count],
                                        signature, sizeof(signature));
 
@@ -42,7 +57,7 @@ int main(int argc, char **argv) {
         /* verify that the signature matches */
         ret = bgpsec_verify_signature_with_cert(data_to_sign,
                                                 sizeof(data_to_sign),
-                                                cert,
+                                                key_data,
                                                 signature_algorithms[algorithm_count],
                                                 signature, sizeof(signature));
         RESULT(("cert sign: verify signature result: %d (should be %d)",

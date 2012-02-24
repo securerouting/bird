@@ -11,7 +11,17 @@
 #define _BIRD_VALIDATE_H_
 
 #include <stdint.h>
+#include <openssl/x509.h>
+#include <openssl/ecdsa.h>
+
 #include "nest/route.h"
+
+typedef union {
+   X509     *x509_public;
+   EVP_PKEY *x509_private;
+
+   EC_KEY   *ecdsa_key;
+} bgpsec_key_data;
 
 /* These match the defined algorithm bytes from the protocol definition */
 
@@ -54,7 +64,8 @@ int bgpsec_sign_data_with_fp(byte *octets, int octets_len, xxxunknown *fp,
  * Returns: The length of the signature actually created, or -1 on error.
  */
 int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
-                               xxxunknown *cert, int signature_algorithm,
+                               bgpsec_key_data cert,
+                               int signature_algorithm,
                                byte *signature, int signature_len);
 
 
@@ -75,7 +86,8 @@ int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
  *            BGPSEC_SIGNATURE_MISMATCH
  */
 int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
-                                      xxxunknown *cert, int signature_algorithm,
+                                      bgpsec_key_data cert,
+                                      int signature_algorithm,
                                       byte *signature, int signature_len);
 
 int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
