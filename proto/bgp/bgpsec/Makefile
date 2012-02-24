@@ -4,4 +4,5 @@ dir-name=proto/bgp/bgpsec
 
 include ../../../Rules
 
-tests: $(objs)
+tests: $(objs) tests.o
+	gcc -o $@ $(objs) tests.o $(LIBS)
