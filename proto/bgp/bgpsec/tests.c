@@ -31,7 +31,6 @@ int main(int argc, char **argv) {
         switch (signature_algorithms[algorithm_count]) {
         case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
             key_data.ecdsa_key = EC_KEY_new_by_curve_name(NID_secp192k1);
-            printf("here: %p\n", key_data.ecdsa_key);
             /* XXX: need the right group */
             // key_data.ecdsa_key->group = EC_GROUP_new_by_nid(NID_secp192k1);
             EC_KEY_generate_key(key_data.ecdsa_key);

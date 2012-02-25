@@ -52,7 +52,7 @@ int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
         BN_to_ASN1_INTEGER(result->r, ar);
         BN_to_ASN1_INTEGER(result->s, as);
         length += i2d_ASN1_INTEGER(ar, &cp);
-        length += i2d_ASN1_INTEGER(ar, &cp);
+        length += i2d_ASN1_INTEGER(as, &cp);
 
         /* XXX: deal with proper sequences later */
         if (length > 128) {
@@ -80,28 +80,25 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
                                       bgpsec_key_data cert,
                                       int signature_algorithm,
                                       byte *signature, int signature_len) {
-    byte generated_signature[1024];
-    int  generated_signature_len;
-
-    /* first we need to sign with the expected certificate and see if
-       we can generate an identical signature */
-
-    /* XXX: don't verify by signing silly; verify by verifying... */
-    generated_signature_len = 
-        bgpsec_sign_data_with_cert(octets, octets_len, cert,
-                                   signature_algorithm, generated_signature,
-                                   sizeof(generated_signature));
-
-    if (generated_signature_len <= 0)
-        return BGPSEC_SIGNATURE_ERROR;
+    int  result;
+    ECDSA_SIG *ecdsa_signature = ECDSA_SIG_new();
+    ASN1_INTEGER *ar = NULL;
+    ASN1_INTEGER *as = NULL;
+    const unsigned char *cp = signature+2;
     
-    if (generated_signature_len != signature_len)
-        return BGPSEC_SIGNATURE_MISMATCH;
+    /* extract the signature object from the DER encoded structure */
+    d2i_ASN1_INTEGER(&ar, &cp, signature_len - (cp - signature));
+    d2i_ASN1_INTEGER(&as, &cp, signature_len - (cp - signature));
+    ASN1_INTEGER_to_BN(ar, ecdsa_signature->r);
+    ASN1_INTEGER_to_BN(as, ecdsa_signature->s);
 
-    if (memcmp(signature, generated_signature, generated_signature_len) != 0)
-        return BGPSEC_SIGNATURE_MISMATCH;
+    result = ECDSA_do_verify(octets, octets_len, ecdsa_signature,
+                             cert.ecdsa_key);
 
-    return BGPSEC_SIGNATURE_MATCH;
+    if (result == 1)
+        return BGPSEC_SIGNATURE_MATCH;
+
+    return BGPSEC_SIGNATURE_MISMATCH;
 }
     
 int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
