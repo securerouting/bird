@@ -28,8 +28,10 @@ struct kif_proto;
 #define KRF_DELETE 3			/* Should be deleted */
 #define KRF_IGNORE 4			/* To be ignored */
 
-#define EA_KRT_PREFSRC EA_CODE(EAP_KRT, 0)
-#define EA_KRT_REALM EA_CODE(EAP_KRT, 1)
+#define EA_KRT_SOURCE	EA_CODE(EAP_KRT, 0)
+#define EA_KRT_METRIC	EA_CODE(EAP_KRT, 1)
+#define EA_KRT_PREFSRC	EA_CODE(EAP_KRT, 2)
+#define EA_KRT_REALM	EA_CODE(EAP_KRT, 3)
 
 /* Whenever we recognize our own routes, we allow learing of foreign routes */
 
@@ -130,7 +132,7 @@ void krt_set_start(struct krt_proto *, int);
 void krt_set_shutdown(struct krt_proto *, int);
 
 int krt_capable(rte *e);
-void krt_set_notify(struct krt_proto *x, net *net, rte *new, rte *old);
+void krt_set_notify(struct krt_proto *p, net *n, rte *new, rte *old, struct ea_list *eattrs);
 
 /* krt-iface.c */
 

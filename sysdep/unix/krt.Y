@@ -17,7 +17,7 @@ CF_DEFINES
 
 CF_DECLS
 
-CF_KEYWORDS(KERNEL, PERSIST, SCAN, TIME, LEARN, DEVICE, ROUTES)
+CF_KEYWORDS(KERNEL, PERSIST, SCAN, TIME, LEARN, DEVICE, ROUTES, KRT_SOURCE, KRT_METRIC)
 
 CF_GRAMMAR
 
@@ -89,6 +89,9 @@ kif_item:
      add_tail(&THIS_KIF->primary, &kpi->n);
    }
  ;
+
+CF_ADDTO(dynamic_attr, KRT_SOURCE { $$ = f_new_dynamic_attr(EAF_TYPE_INT | EAF_TEMP, T_INT, EA_KRT_SOURCE); })
+CF_ADDTO(dynamic_attr, KRT_METRIC { $$ = f_new_dynamic_attr(EAF_TYPE_INT | EAF_TEMP, T_INT, EA_KRT_METRIC); })
 
 CF_CODE
 
