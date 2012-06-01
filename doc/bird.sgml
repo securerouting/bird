@@ -426,10 +426,37 @@ to zero to disable it. An empty <cf><m/switch/</cf> is equivalent to <cf/on/
 	uses global router id.
 
 	<tag>import all | none | filter <m/name/ | filter { <m/filter commands/ } | where <m/filter expression/</tag> 
-	Specify a filter to be used for filtering routes coming from the protocol to the routing table. <cf/all/ is shorthand for <cf/where true/ and <cf/none/ is shorthand for <cf/where false/. Default: <cf/all/.
+	Specify a filter to be used for filtering routes coming from
+	the protocol to the routing table. <cf/all/ is shorthand for
+	<cf/where true/ and <cf/none/ is shorthand for
+	<cf/where false/. Default: <cf/all/.
 
-	<tag>export <m/filter/</tag> This is similar to the <cf>import</cf> keyword, except that it
-	works in the direction from the routing table to the protocol. Default: <cf/none/.
+	<tag>export <m/filter/</tag>
+	This is similar to the <cf>import</cf> keyword, except that it
+	works in the direction from the routing table to the protocol.
+	Default: <cf/none/.
+
+	<tag>import limit <m/number/ [action warn | block | restart | disable]</tag>
+	Specify an import route limit (a maximum number of routes
+	imported from the protocol) and optionally the action to be
+	taken when the limit is hit. Warn action just prints warning
+	log message. Block action ignores new routes coming from the
+	protocol. Restart and disable actions shut the protocol down
+	like appropriate commands. Disable is the default action if an
+	action is not explicitly specified. Note that limits are reset
+	during protocol reconfigure, reload or restart.
+	Default: <cf/none/.
+
+	<tag>export limit <m/number/ [action warn | block | restart | disable]</tag>
+	Specify an export route limit, works similarly to
+	the <cf>import limit</cf> option, but for the routes exported
+	to the protocol. This option is experimental, there are some
+	problems in details of its behavior -- the number of exported
+	routes can temporarily exceed the limit without triggering it
+	during protocol reload, exported routes counter ignores route
+	blocking and block action also blocks route updates of alread
+	accepted routes -- and these details will probably change in
+	the future. Default: <cf/none/.
 
 	<tag>description "<m/text/"</tag> This is an optional
 	description of the protocol. It is displayed as a part of the
@@ -1045,7 +1072,16 @@ undefined value is regarded as empty clist for most purposes.
 	routes). Read-only.
 
 	<tag><m/enum/ dest</tag>
-	Type of destination the packets should be sent to (<cf/RTD_ROUTER/ for forwarding to a neighboring router, <cf/RTD_DEVICE/ for routing to a directly-connected network, <cf/RTD_BLACKHOLE/ for packets to be silently discarded, <cf/RTD_UNREACHABLE/, <cf/RTD_PROHIBIT/ for packets that should be returned with ICMP host unreachable / ICMP administratively prohibited messages). Read-only.
+	Type of destination the packets should be sent to
+	(<cf/RTD_ROUTER/ for forwarding to a neighboring router,
+	<cf/RTD_DEVICE/ for routing to a directly-connected network,
+	<cf/RTD_MULTIPATH/ for multipath destinations,
+	<cf/RTD_BLACKHOLE/ for packets to be silently discarded,
+	<cf/RTD_UNREACHABLE/, <cf/RTD_PROHIBIT/ for packets that
+	should be returned with ICMP host unreachable / ICMP
+	administratively prohibited messages). Can be changed, but
+	only to <cf/RTD_BLACKHOLE/, <cf/RTD_UNREACHABLE/ or
+	<cf/RTD_PROHIBIT/.
 
 	<tag><m/int/ igp_metric</tag>
 	The optional attribute that can be used to specify a distance
@@ -1327,7 +1363,8 @@ for each neighbor using the following configuration parameters:
 
 	<tag>route limit <m/number/</tag> The maximal number of routes
 	that may be imported from the protocol. If the route limit is
-	exceeded, the connection is closed with error. Default: no limit.
+	exceeded, the connection is closed with error. Limit is currently implemented as
+	<cf/import limit number exceed restart/. Default: no limit.
 
 	<tag>disable after error <m/switch/</tag> When an error is encountered (either
 	locally or by the other side), disable the instance automatically
@@ -1774,7 +1811,7 @@ protocol ospf &lt;name&gt; {
 			summary &lt;switch&gt;;
 			cost &lt;num&gt;;
 		}
-		interface &lt;interface pattern&gt; {
+		interface &lt;interface pattern&gt; [instance &lt;num&gt;] {
 			cost &lt;num&gt;;
 			stub &lt;switch&gt;;
 			hello &lt;num&gt;;
@@ -1788,6 +1825,7 @@ protocol ospf &lt;name&gt; {
 			type [broadcast|bcast|pointopoint|ptp|
 				nonbroadcast|nbma|pointomultipoint|ptmp];
 			strict nonbroadcast &lt;switch&gt;;
+			real broadcast &lt;switch&gt;;
 			check link &lt;switch&gt;;
 			ecmp weight &lt;num&gt;;
 			authentication [none|simple|cryptographic];
@@ -1804,7 +1842,7 @@ protocol ospf &lt;name&gt; {
 				&lt;ip&gt; eligible;
 			};
 		};
-		virtual link &lt;id&gt;	{
+		virtual link &lt;id&gt; [instance &lt;num&gt;] {
 			hello &lt;num&gt;;
 			retransmit &lt;num&gt;;
 			wait &lt;num&gt;;
@@ -1924,14 +1962,19 @@ protocol ospf &lt;name&gt; {
 	 subnetworks of given stub network are suppressed. This might
 	 be used, for example, to aggregate generated stub networks.
 	 
-	<tag>interface <M>pattern</M></tag>
+	<tag>interface <M>pattern</M> [instance <m/num/]</tag>
 	 Defines that the specified interfaces belong to the area being defined.
 	 See <ref id="dsc-iface" name="interface"> common option for detailed description.
+	 In OSPFv3, you can specify instance ID for that interface
+	 description, so it is possible to have several instances of
+	 that interface with different options or even in different areas.
 
-	<tag>virtual link <M>id</M></tag>
-	 Virtual link to router with the router id. Virtual link acts as a
-         point-to-point interface belonging to backbone. The actual area is
-         used as transport area. This item cannot be in the backbone.
+	<tag>virtual link <M>id</M> [instance <m/num/]</tag>
+	 Virtual link to router with the router id. Virtual link acts
+         as a point-to-point interface belonging to backbone. The
+         actual area is used as transport area. This item cannot be in
+         the backbone. In OSPFv3, you could also use several virtual
+         links to one destination with different instance IDs.
 
 	<tag>cost <M>num</M></tag>
 	 Specifies output cost (metric) of an interface. Default value is 10.
@@ -2015,6 +2058,16 @@ protocol ospf &lt;name&gt; {
 	<tag>strict nonbroadcast <M>switch</M></tag>
 	 If set, don't send hello to any undefined neighbor. This switch
 	 is ignored on other than NBMA or PtMP networks. Default value is no.
+
+	<tag>real broadcast <m/switch/</tag>
+	 In <cf/type broadcast/ or <cf/type ptp/ network
+	 configuration, OSPF packets are sent as IP multicast
+	 packets. This option changes the behavior to using
+	 old-fashioned IP broadcast packets. This may be useful as a
+	 workaround if IP multicast for some reason does not work or
+	 does not work reliably. This is a non-standard option and
+	 probably is not interoperable with other OSPF
+	 implementations. Default value is no.
 
 	<tag>check link <M>switch</M></tag>
 	 If set, a hardware link state (reported by OS) is taken into
