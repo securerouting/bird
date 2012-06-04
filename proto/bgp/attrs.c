@@ -566,11 +566,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
   static u8 hashbuff[BGPSEC_MAX_ALGO_SIG_LENGTH + 4];
 
   eattr *patha   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_AS_PATH));
-  eattr *bpgsa   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
+  eattr *bgpsa   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
 
   /* clean out any previous data */
   bzero(sigbuff, BGPSEC_MAX_ALGO_SIG_LENGTH);
-  bzero(hashbuff, 26);
+  bzero(hashbuff, (BGPSEC_MAX_ALGO_SIG_LENGTH + 4));
 
   /* XXX if this is a bgpsec connection and no bgpsec attribute, is
    * this okay?, yes for starting AS */
@@ -603,7 +603,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
   if ( conn->bgp->local_as == get_u32(pathptr + ((plen-1)*4)) &&
        conn->bgp->local_as == get_u32(pathptr) )
     {
-      if ( bpgsa != NULL ) 
+      if ( bgpsa != NULL ) 
 	{
 	  DBG("\tbpgsec_sign: bpgsec attr shouldn't exist at first path AS\n");
 	  return 0;
@@ -627,11 +627,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
 
       /* create data to sign */
       memcpy(hashbuff,     &exp_time, 8); /* XXX fix */
-      memcpy(hashbuff[8],  &ras, 4);
-      memcpy(hashbuff[12], &las, 4);
-      memcpy(hashbuff[16], &algo_id, 1);
-      memcpy(hashbuff[17], &pxlen, 1);
-      memcpy(hashbuff[18], &prefix, px_bytes );
+      memcpy((hashbuff+8),  &ras, 4);
+      memcpy((hashbuff+12), &las, 4);
+      memcpy((hashbuff+16), &algo_id, 1);
+      memcpy((hashbuff+17), &pxlen, 1);
+      memcpy((hashbuff+18), &prefix, px_bytes );
       /* sign */
       int siglength = BGPSEC_ALGO_SIG_LENGTH;
       /* XXX length of ski probably needed in call
@@ -679,7 +679,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
   /* else we are not the orignial AS, add signature to list */
   else 
     {
-      if ( bpgsa == NULL ) 
+      if ( bgpsa == NULL ) 
 	{
 	  DBG("\tbpgsec_sign: error: bpgsec attr does not exist\n");
 	  return 0;
@@ -694,7 +694,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
 
       /* XXX need to handle 2 signature list blocks */
       struct bgpsec_sig_attr *sigattr =
-	(struct bgpsec_sig_attr *)&(bpgsa->u.ptr->data);
+	(struct bgpsec_sig_attr *)&(bgpsa->u.ptr->data);
       struct sig_list_block   *sblock =
 	(struct sig_list_block *)&(sigattr->sig_list_blocks[0]);
   
