@@ -542,7 +542,8 @@ bgp_get_attr_len(eattr *a)
 #define ADVANCE(w, r, l) do { r -= l; w += l; } while (0)
 
 
-/* For the original AS, add a bgpsec signature attribute to the update */
+/* For the originating AS, add a bgpsec signature attribute to the
+ * update */
 /* Otherwise, add an additional signature to the bgpsec signature
  * attribute */
 unsigned int 
@@ -552,7 +553,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	    int                remains,
             struct bgp_bucket *buck)
 {
-  /* if this is not a bgpsec connection, done */  if (!conn->bgpsec || !conn->peer_bgpsec_support)
+  /* if this is not a bgpsec connection, done */  
+  if (!conn->peer_bgpsec_support)
     {
       return 1;
     }

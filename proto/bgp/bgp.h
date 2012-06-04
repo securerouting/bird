@@ -288,7 +288,7 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 #define BA_COMMUNITY		0x08	/* [RFC1997] */		/* OT */
 #define BA_ORIGINATOR_ID	0x09	/* [RFC1966] */		/* ON */
 #define BA_CLUSTER_LIST		0x0a				/* ON */
-#define BA_BGPSEC_SIGNATURE 0x0b  /* draft-ietf-sidr-bgpsec-protocol */
+#define BA_BGPSEC_SIGNATURE     0x0b  /* draft-ietf-sidr-bgpsec-protocol */
 /* We don't support these: */
 #define BA_DPA			        0x0c  /* ??? */
 #define BA_ADVERTISER		    0x0d  /* [RFC1863] */

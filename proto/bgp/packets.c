@@ -701,7 +701,7 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 		}
 
 		if (BGP_AF_IPV4 == afi) {
-			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV4 Address Family : %d", afi);
+			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
 			p->bgpsec_ipv4 = 1;
 		}
 		else if (BGP_AF_IPV6 == afi) {
