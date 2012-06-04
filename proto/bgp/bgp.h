@@ -37,7 +37,8 @@ struct bgp_config {
   int enable_refresh;			/* Enable local support for route refresh [RFC2918] */
   int enable_as4;			/* Enable local support for 4B AS numbers [RFC4893] */
     /* XXX BGPSec XXX*/
-  int enable_bgpsec;        /* Whether neighbor should be a BGPSec peer */
+  int enable_bgpsec;                    /* Whether neighbor should be a BGPSec peer */
+  char *bgpsec_ski;                     /* local subject key id */
 
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
@@ -145,6 +146,39 @@ struct bgp_bucket {
   ea_list eattrs[0];			/* Per-bucket extended attributes */
 };
 
+/* BGPSec constants / structures */
+
+#define BGPSEC_MAX_KEY_ID_LENGTH  255
+#define BGPSEC_MAX_KEY_SIG_LENGTH 64
+#define BGPSEC_SIGSEGMENT_ARRAY_LENGTH 10
+#define BGPSEC_ALGO_ID 1                /* XXX this needs to be fixed */
+#define BGPSEC_ALGO_SIG_LENGTH 64       /* XXX this needs to be fixed */
+#define BGPSEC_MAX_ALGO_SIG_LENGTH 64   /* XXX this needs to be fixed */
+
+struct sig_segment {
+	byte                 pcount;
+	/* rfc5280: ski lengths are suggested: 8 | 20 octs, BUT no max is set */
+	byte                 subject_key_id_length; 
+	byte                 subject_key_id[BGPSEC_MAX_KEY_ID_LENGTH];
+                       /* size fixed by algorithm type */
+	byte                 signature[BGPSEC_MAX_ALGO_SIG_LENGTH];
+	struct sig_segment  *next;
+};
+
+struct sig_list_block {
+	byte                 algo_suite_id;
+	u16                  sig_list_block_length;
+	int                  number_of_sig_segments;
+	struct sig_segment   sig_segments[BGPSEC_SIGSEGMENT_ARRAY_LENGTH];
+};
+
+struct bgpsec_sig_attr {
+	u64                   expire_time;
+	int                   number_of_sig_blocks;
+ 	struct sig_list_block sig_list_blocks[2];
+};
+
+
 #define BGP_PORT		179
 #define BGP_VERSION		4
 #define BGP_HEADER_LENGTH	19
@@ -153,6 +187,7 @@ struct bgp_bucket {
 #define BGP_TX_BUFFER_SIZE	BGP_MAX_PACKET_LENGTH
 
 /* BGPSec constants */
+
 #define BGPSEC_VERSION	    0
 #define BGPSEC_CAPABILITY	99  /* xxx currently an arbitrary value */
 
@@ -208,7 +243,7 @@ int bgp_rte_recalculate(rtable *table, net *net, rte *new, rte *old, rte *old_be
 void bgp_rt_notify(struct proto *P, rtable *tbl UNUSED, net *n, rte *new, rte *old UNUSED, ea_list *attrs);
 int bgp_import_control(struct proto *, struct rte **, struct ea_list **, struct linpool *);
 void bgp_attr_init(struct bgp_proto *);
-unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains);
+unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, struct bgp_bucket *buck);
 void bgp_free_bucket(struct bgp_proto *p, struct bgp_bucket *buck);
 void bgp_get_route_info(struct rte *, byte *buf, struct ea_list *attrs);
 
@@ -241,6 +276,8 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 #define BAF_PARTIAL		0x20
 #define BAF_EXT_LEN		0x10
 
+/* Note: these must match location in the bgp_attr_table */
+
 #define BA_ORIGIN		0x01	/* [RFC1771] */		/* WM */
 #define BA_AS_PATH		0x02				/* WM */
 #define BA_NEXT_HOP		0x03				/* WM */
@@ -251,15 +288,16 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 #define BA_COMMUNITY		0x08	/* [RFC1997] */		/* OT */
 #define BA_ORIGINATOR_ID	0x09	/* [RFC1966] */		/* ON */
 #define BA_CLUSTER_LIST		0x0a				/* ON */
+#define BA_BGPSEC_SIGNATURE 0x0b  /* draft-ietf-sidr-bgpsec-protocol */
 /* We don't support these: */
-#define BA_DPA			0x0b	/* ??? */
-#define BA_ADVERTISER		0x0c	/* [RFC1863] */
-#define BA_RCID_PATH		0x0d
-#define BA_MP_REACH_NLRI	0x0e	/* [RFC2283] */
-#define BA_MP_UNREACH_NLRI	0x0f
-#define BA_EXT_COMMUNITY	0x10	/* [RFC4360] */
-#define BA_AS4_PATH             0x11    /* [RFC4893] */
-#define BA_AS4_AGGREGATOR       0x12
+#define BA_DPA			        0x0c  /* ??? */
+#define BA_ADVERTISER		    0x0d  /* [RFC1863] */
+#define BA_RCID_PATH		    0x0e
+#define BA_MP_REACH_NLRI	  0x0f  /* [RFC2283] */
+#define BA_MP_UNREACH_NLRI  0x10
+#define BA_EXT_COMMUNITY    0x11  /* [RFC4360] */
+#define BA_AS4_PATH         0x12  /* [RFC4893] */
+#define BA_AS4_AGGREGATOR   0x13
 
 /* BGP connection states */
 

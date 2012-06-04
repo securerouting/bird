@@ -304,7 +304,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	    }
 
 	  DBG("Processing bucket %p\n", buck);
-	  a_size = bgp_encode_attrs(p, w+2, buck->eattrs, 2048);
+	  /* XXX need buck for bpgesec NLRI prefix info */
+	  a_size = bgp_encode_attrs(p, w+2, buck->eattrs, 2048, buck);
 
 	  if (a_size < 0)
 	    {
@@ -368,11 +369,12 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
       *tmp++ = BGP_AF_IPV6;
       *tmp++ = 1;
       ea->attrs[0].u.ptr->length = 3 + bgp_encode_prefixes(p, tmp, buck, remains-11);
-      size = bgp_encode_attrs(p, w, ea, remains);
+      /* XXX need buck for bpgesec NLRI prefix info */
+      size = bgp_encode_attrs(p, w, ea, remains, buck);
       ASSERT(size >= 0);
       w += size;
       remains -= size;
-    }
+     }
 
   if (remains >= 3072)
     {
@@ -390,7 +392,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  rem_stored = remains;
 	  w_stored = w;
 
-	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048);
+	  /* XXX need buck for bpgesec NLRI prefix info */
+	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048, buck);
 	  if (size < 0)
 	    {
 	      log(L_ERR "%s: Attribute list too long, skipping corresponding routes", p->p.name);
@@ -486,7 +489,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  *tmp++ = 0;			/* No SNPA information */
 	  tmp += bgp_encode_prefixes(p, tmp, buck, remains - (8+3+32+1));
 	  ea->attrs[0].u.ptr->length = tmp - tstart;
-	  size = bgp_encode_attrs(p, w, ea, remains);
+	  /* XXX need buck for bpgesec NLRI prefix info */
+	  size = bgp_encode_attrs(p, w, ea, remains, buck);
 	  ASSERT(size >= 0);
 	  w += size;
 	  break;
@@ -673,30 +677,38 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  break;
 
 	case BGPSEC_CAPABILITY: /* BPGSEC capability, currently arbitrary */
-      afi = get_u16(opt + 3);
-      if ( BGPSEC_VERSION == (opt[2] & 0x0F) ) {
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matchs : %d", (opt[2] & 0x0F));
-        conn->peer_bgpsec_support = 1;
-      }
+		if ( ! p->cf->enable_bgpsec ) {
+			BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC NOT enabled");
+			goto err;
+		}
+		if ( BGPSEC_VERSION == (opt[2] & 0x0F) ) {
+			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
+			conn->peer_bgpsec_support = 1;
+		}
+		else {
+			BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC_VERSION does not match, loc : %d, rem : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
+			goto err;
+		}
+		afi = get_u16(opt + 3);
 
-      if (opt[2] & 0x80) { 
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
-        p->bgpsec_send = 1;
-      }
-      if (opt[2] & 0x40) {
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
-        p->bgpsec_receive = 1;
-      }
+		if (opt[2] & 0x80) { 
+			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
+			p->bgpsec_send = 1;
+		}
+		if (opt[2] & 0x40) {
+			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
+			p->bgpsec_receive = 1;
+		}
 
-      if (BGP_AF_IPV4 == afi) {
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV4 Address Family : %d", afi);
-        p->bgpsec_ipv4 = 1;
-      }
-      else if (BGP_AF_IPV6 == afi) {
-        BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
-        p->bgpsec_ipv6 = 1;
-      }
-      break;
+		if (BGP_AF_IPV4 == afi) {
+			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV4 Address Family : %d", afi);
+			p->bgpsec_ipv4 = 1;
+		}
+		else if (BGP_AF_IPV6 == afi) {
+			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
+			p->bgpsec_ipv6 = 1;
+		}
+		break;
 	  /* We can safely ignore all other capabilities */
 	}
       len -= 2 + cl;
@@ -908,6 +920,113 @@ bgp_set_next_hop(struct bgp_proto *p, rta *a)
   return 1;
 }
 
+int bgpsec_authenticate(struct  bgp_conn *conn,
+			        rta      *route,
+			        ip_addr  prefix, 
+			        int      pxlen)
+{
+  eattr   *patha   = ea_find(route->eattrs, 
+			     EA_CODE(EAP_BGP, BA_AS_PATH));
+  eattr   *bpgsa   = ea_find(route->eattrs, 
+			     EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
+  static u8 hashbuff[BGPSEC_MAX_ALGO_SIG_LENGTH + 4];
+
+  /* clean out any previous data */
+  bzero(hashbuff, (BGPSEC_MAX_ALGO_SIG_LENGTH + 4));
+
+  /* check existence of as path and bgpsec signature attributes */
+  if ( patha == NULL || bpgsa == NULL ) 
+    {
+      /* may depend on configuration (i.e. require bgpsec or not) */
+      return 0;
+    }
+
+  /* XXX need to handle 2 signature list blocks */
+  struct bgpsec_sig_attr *sigattr = 
+    (struct bgpsec_sig_attr *)&(bpgsa->u.ptr->data);
+  struct sig_list_block  *sblock =
+    (struct sig_list_block  *)&(sigattr->sig_list_blocks[0]);
+  
+  int  slen    = patha->u.ptr->length;
+  u8  *pathptr = (u8 *)&(patha->u.ptr->data);
+  int  pa_len  = pathptr[1];
+  int  cseg    = 0;
+
+  if ( pathptr[0] != AS_PATH_SEQUENCE )
+    {
+      /* must be as_sequence, as_set not allowed for bgpsec */
+      return 0;
+    }  
+
+  pathptr += 2;
+
+  /* check all sig segments up to the last one */
+  while ( (pa_len > 0) && (slen) && 
+	  (cseg < (sblock->number_of_sig_segments-1)) )
+    {
+      /*      u32 as = get_u32(pathptr); */
+      memcpy(hashbuff, sblock->sig_segments[cseg].signature, 
+	     BGPSEC_ALGO_SIG_LENGTH);
+      memcpy((hashbuff + BGPSEC_ALGO_SIG_LENGTH), pathptr, 4);
+      
+      if ( 1 != 1 )
+	/* XXX
+      if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_fp
+	   (hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4),
+	    &sblock->sig_segments[cseg].subject_key_id, 
+	    sblock->sig_segments[cseg].subject_key_id_length, 
+	    sblock->algo_suite_id,
+	    &sblock->sig_segments[cseg].signature,
+	    BGPSEC_ALGO_SIG_LENGTH) )
+	*/
+	{
+	  /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
+	                BGPSEC_SIGNATURE_MISMATCH */
+	  return 0;
+	}
+      cseg++;
+      pa_len  = pa_len - sblock->sig_segments[cseg].pcount;
+      pathptr = pathptr + (sblock->sig_segments[cseg].pcount * 4);
+    }
+
+  /* are we in the correct place for the last authentication */
+  if ( (cseg != (sblock->number_of_sig_segments-1)) || 
+       (pa_len >= 1) )
+    {
+	  /* XXX differentiate error msgs? */
+      return 0;
+    }
+
+  /* authenticate origin AS */
+  memcpy(hashbuff, (pathptr-4), 4);
+  memcpy((hashbuff + 4), pathptr, 4);
+  memcpy((hashbuff + 8), &sblock->sig_segments[cseg].pcount, 1);
+  memcpy((hashbuff + 9), &sblock->algo_suite_id, 1);
+  memcpy((hashbuff + 10), &sigattr->expire_time, 8);
+  memcpy((hashbuff + 18), &pxlen, 1);
+  int prefix_bytes = (pxlen + 7) / 8;
+  memcpy((hashbuff + 19), &prefix, prefix_bytes);
+
+  if ( 1 != 1 )
+	/* XXX
+  if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_fp
+       (hashbuff, (19 + NLRI_Length),
+	&sblock->sig_segments[cseg].subject_key_id, 
+	sblock->sig_segments[cseg].subject_key_id_length, 
+	sblock->algo_suite_id,
+	&sblock->sig_segments[cseg].signature,
+	BGPSEC_ALGO_SIG_LENGTH) )
+	*/
+    {
+      /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
+	 BGPSEC_SIGNATURE_MISMATCH */
+      return 0;
+    }
+  
+  return 1;
+} /* int bgpsec_authenticate */
+
+
 #ifndef IPV6		/* IPv4 version */
 
 static void
@@ -946,6 +1065,16 @@ bgp_do_rx_update(struct bgp_conn *conn,
     {
       DECODE_PREFIX(nlri, nlri_len);
       DBG("Add %I/%d\n", prefix, pxlen);
+
+      if (conn->bgpsec && conn->peer_bgpsec_support)
+	{
+	if (!bgpsec_authenticate(conn, a0, prefix, pxlen))
+	  {
+	    /* XXX correct error values */
+	    err = 1;
+	    goto done;
+	  }
+	} 
 
       if (a)
 	{
@@ -1066,6 +1195,16 @@ bgp_do_rx_update(struct bgp_conn *conn,
 	  DECODE_PREFIX(x, len);
 	  DBG("Add %I/%d\n", prefix, pxlen);
 
+	  if (conn->bgpsec && conn->peer_bgpsec_support)
+	    {
+	      if (!bgpsec_authenticate(conn, a0, prefix, pxlen))
+		{
+		  /* XXX correct error values */
+		  err = 1;
+		  goto done;
+		}
+	    } 
+
 	  if (a)
 	    {
 	      rte *e = rte_get_temp(rta_clone(a));
@@ -1173,6 +1312,7 @@ static struct {
   { 3, 9, "Optional attribute error" },
   { 3, 10, "Invalid network field" },
   { 3, 11, "Malformed AS_PATH" },
+  { 3, 12, "Bad BGPSEC Signature"},
   { 4, 0, "Hold timer expired" },
   { 5, 0, "Finite state machine error" },
   { 6, 0, "Cease" }, /* Subcodes are according to [RFC4486] */
