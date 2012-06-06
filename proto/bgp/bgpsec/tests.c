@@ -68,6 +68,20 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SIGNATURE_MATCH),
                ret == BGPSEC_SIGNATURE_MATCH);
 
+        /* modify the public key so it can't be part of the verification */
+        /* (which should make the verification fail now) */
+        EC_KEY_set_public_key(key_data.ecdsa_key, &newbignum);
+
+        /* verify that the signature matches */
+        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+                                                sizeof(data_to_sign),
+                                                key_data,
+                                                signature_algorithms[algorithm_count],
+                                                signature, signature_len);
+        RESULT(("cert sign: verify signature fail result: %d (should be %d)",
+                ret, BGPSEC_SIGNATURE_MISMATCH),
+               ret == BGPSEC_SIGNATURE_MISMATCH);
+        
         /* generate a signature using a fingerprint */
         /* XXX: set test directory to search for matching fp->certs */
         signature_len =
