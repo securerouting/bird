@@ -16,6 +16,8 @@ int main(int argc, char **argv) {
     int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
+    BIGNUM newbignum;
+
     printf("Testing:\n");
 
     int good = 0, bad = 0;
@@ -51,7 +53,10 @@ int main(int argc, char **argv) {
                 signature_algorithms[algorithm_count], signature_len),
                signature_len > -1);
         RESULT(("cert sign: algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
-        
+
+        /* modify the private key so it can't be part of the verification */
+        BN_init(&newbignum);
+        EC_KEY_set_private_key(key_data.ecdsa_key, &newbignum);
 
         /* verify that the signature matches */
         ret = bgpsec_verify_signature_with_cert(data_to_sign,
