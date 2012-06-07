@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <sys/param.h>
 
 #include "validate.h"
 
@@ -9,24 +10,20 @@ int main(int argc, char **argv) {
     int  signature_len = sizeof(signature);
     bgpsec_key_data key_data;
     xxxunknown *fp = 0;
-    int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
-    byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
-    char filenamebuf[MAX_PATH_LEN];
+    int  signature_algorithm = BGPSEC_ALGORITHM_SHA256_ECDSA_P_256;
+    char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
     FILE *saveTo;
     const EC_POINT *publicKey;
     size_t len;
     int curveId;
+    const BIGNUM *keydata;
 
     if (argc < 2) {
         ERROR("Usage: genrtrkey FILEPREFIX");
     }
 
-    bgpsec_key_data key_data;
-
-    const BIGNUM *keydata;
-
-    switch (signature_algorithms[algorithm_count]) {
+    switch (signature_algorithm) {
     case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
         curveId = NID_secp192k1;
         key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
@@ -59,15 +56,14 @@ int main(int argc, char **argv) {
     fclose(saveTo);
 
     /* extract the public key */
-    publicKey = EC_KEY_get0_private_key(key_data.ecdsa_key);
+    publicKey = EC_KEY_get0_public_key(key_data.ecdsa_key);
     if (NULL == publicKey) {
         ERROR("failed to extract the public key");
     }
 
     /* save the public key */
     len = EC_POINT_point2oct(EC_GROUP_new_by_curve_name(curveId),
-                             NID_secp192k1, publicKey,
-                             POINT_CONVERSION_COMPRESSED,
+                             publicKey, POINT_CONVERSION_COMPRESSED,
                              octetBuffer, sizeof(octetBuffer), NULL);
 
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", argv[1]);
