@@ -26,13 +26,15 @@ int main(int argc, char **argv) {
     int algorithm_count = 0;
 
     int ret;
+    int curveId;
 
     while(signature_algorithms[algorithm_count] > 0) {
         bgpsec_key_data key_data;
 
         switch (signature_algorithms[algorithm_count]) {
         case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
-            key_data.ecdsa_key = EC_KEY_new_by_curve_name(NID_secp192k1);
+            curveId = NID_secp192k1;
+            key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
             /* XXX: need the right group */
             // key_data.ecdsa_key->group = EC_GROUP_new_by_nid(NID_secp192k1);
             EC_KEY_generate_key(key_data.ecdsa_key);
@@ -53,6 +55,11 @@ int main(int argc, char **argv) {
                 signature_algorithms[algorithm_count], signature_len),
                signature_len > -1);
         RESULT(("cert sign: algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
+
+        /* save the existing key */
+        ret = bgpsec_save_key("/tmp/testkey", &key_data, curveId);
+        RESULT(("cert sign: saving key function returned: %d (should be %d)",
+                ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
 
         /* modify the private key so it can't be part of the verification */
         BN_init(&newbignum);
