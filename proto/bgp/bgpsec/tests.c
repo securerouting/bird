@@ -17,6 +17,7 @@ int main(int argc, char **argv) {
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
     BIGNUM newbignum;
+    EC_POINT *new_point;
 
     printf("Testing:\n");
 
@@ -77,7 +78,9 @@ int main(int argc, char **argv) {
 
         /* modify the public key so it can't be part of the verification */
         /* (which should make the verification fail now) */
-        EC_KEY_set_public_key(key_data.ecdsa_key, &newbignum);
+        new_point = EC_POINT_new(EC_GROUP_new_by_curve_name(curveId));
+        EC_KEY_set_public_key(key_data.ecdsa_key, new_point);
+        EC_POINT_free(new_point);
 
         /* verify that the signature matches */
         ret = bgpsec_verify_signature_with_cert(data_to_sign,
