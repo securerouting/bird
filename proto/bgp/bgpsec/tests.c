@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
         EC_KEY_set_public_key(key_data.ecdsa_key, new_point);
         EC_POINT_free(new_point);
 
-        /* verify that the signature matches */
+        /* verify that the signature no longer matches */
         ret = bgpsec_verify_signature_with_cert(data_to_sign,
                                                 sizeof(data_to_sign),
                                                 key_data,
