@@ -612,7 +612,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
       pcount       = plen;
       u32 las      = conn->bgp->local_as;
 
-      struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
+      struct bgp_prefix *px = 
+	SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
       if ( px == NULL )
 	{
 	  /* XXX bad prefix? */
@@ -661,11 +662,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
 				   (sig_segment_len + 11) );
       ADVANCE(w, remains, rv);
-      memcpy(w, &exp_time, 8);
+      put_u64(w, &exp_time);
       ADVANCE(w, remains, 8);
       memcpy(w, &algo_id, 1);
       ADVANCE(w, remains, 1);
-      memcpy(w, &sig_segment_len, 2);
+      put_u16(w, &sig_segment_len);
       ADVANCE(w, remains, 2);
       memcpy(w, &pcount, 1);
       ADVANCE(w, remains, 1);
@@ -735,11 +736,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
 				   (11 + new_sig_block_length) );
       ADVANCE(w, remains, rv);
-      memcpy(w, &exp_time, 8);
+      put_u64(w, &exp_time);
       ADVANCE(w, remains, 8);
       memcpy(w, &algo_id, 1);
       ADVANCE(w, remains, 1);
-      memcpy(w, &new_sig_block_length, 2);
+      put_u16(w, &new_sig_block_length);
       ADVANCE(w, remains, 2);
 
       /* add the new sig segment */

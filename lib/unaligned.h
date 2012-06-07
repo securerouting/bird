@@ -19,6 +19,9 @@
 
 #include "lib/string.h"
 
+/* XXX need ifdef to intsead use bsd's #include <sys/endian.h> */
+#include <endian.h>
+
 static inline u16
 get_u16(void *p)
 {
@@ -40,7 +43,7 @@ get_u64(void *p)
 {
   u64 x;
   memcpy(&x, p, 8);
-  return ntohl(x);
+  return be64toh(x);
 }
 
 static inline void
@@ -60,7 +63,7 @@ put_u32(void *p, u32 x)
 static inline void
 put_u64(void *p, u64 x)
 {
-  x = htonl(x);
+  x = htobe64(x);
   memcpy(p, &x, 8);
 }
 
