@@ -7,7 +7,13 @@
  *
  */
 
+#include <stdio.h>
+#include <sys/param.h>
+
 #include "validate.h"
+
+#define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_SUCCESS); } while(0);
+
 
 int bgpsec_sign_data_with_fp(byte *octets, int octets_len, xxxunknown *fp,
                              int algorithm, byte *signature,
@@ -111,4 +117,50 @@ int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
                                              keys,
                                              signature_algorithm,
                                              signature, signature_len);
+}
+
+int bgpsec_load_key(const char *filePrefix) {
+    
+}
+
+int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
+                    int curveId) {
+    char filenamebuf[MAXPATHLEN];
+    char octetBuffer[4096];
+    const BIGNUM *keydata;
+    const EC_POINT *publicKey;
+    FILE *saveTo;
+    size_t len;
+
+    filenamebuf[sizeof(filenamebuf)-1] = '\0';
+
+    /* extract the private key */
+    keydata = EC_KEY_get0_private_key(key_data->ecdsa_key);
+    if (NULL == keydata) {
+        ERROR("failed to extract the private key");
+    }
+
+    /* save the private key */
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.private", filePrefix);
+    saveTo = fopen(filenamebuf, "w");
+    BN_print_fp(saveTo, keydata);
+    fclose(saveTo);
+
+    /* extract the public key */
+    publicKey = EC_KEY_get0_public_key(key_data->ecdsa_key);
+    if (NULL == publicKey) {
+        ERROR("failed to extract the public key");
+    }
+
+    /* save the public key */
+    len = EC_POINT_point2oct(EC_GROUP_new_by_curve_name(curveId),
+                             publicKey, POINT_CONVERSION_COMPRESSED,
+                             octetBuffer, sizeof(octetBuffer), NULL);
+
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", filePrefix);
+    saveTo = fopen(filenamebuf, "w");
+    fwrite(octetBuffer, len, 1, saveTo);
+    fclose(saveTo);
+
+    return BGPSEC_SUCCESS;
 }

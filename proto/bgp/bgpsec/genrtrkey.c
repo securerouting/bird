@@ -36,40 +36,5 @@ int main(int argc, char **argv) {
         exit(42);
     }
 
-    if (NULL == key_data.ecdsa_key) {
-        ERROR("failed to generate a key structure");
-    }
-
-    filenamebuf[sizeof(filenamebuf)-1] = '\0';
-
-
-    /* extract the private key */
-    keydata = EC_KEY_get0_private_key(key_data.ecdsa_key);
-    if (NULL == keydata) {
-        ERROR("failed to extract the private key");
-    }
-
-    /* save the private key */
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.private", argv[1]);
-    saveTo = fopen(filenamebuf, "w");
-    BN_print_fp(saveTo, keydata);
-    fclose(saveTo);
-
-    /* extract the public key */
-    publicKey = EC_KEY_get0_public_key(key_data.ecdsa_key);
-    if (NULL == publicKey) {
-        ERROR("failed to extract the public key");
-    }
-
-    /* save the public key */
-    len = EC_POINT_point2oct(EC_GROUP_new_by_curve_name(curveId),
-                             publicKey, POINT_CONVERSION_COMPRESSED,
-                             octetBuffer, sizeof(octetBuffer), NULL);
-
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", argv[1]);
-    saveTo = fopen(filenamebuf, "w");
-    fwrite(octetBuffer, len, 1, saveTo);
-    fclose(saveTo);
-
-    return 0;
+    return bgpsec_save_key(argv[1], &key_data, curveId);
 }

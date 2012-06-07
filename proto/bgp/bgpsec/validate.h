@@ -23,6 +23,11 @@ typedef union {
    EC_KEY   *ecdsa_key;
 } bgpsec_key_data;
 
+/* Generic error codes */
+#define BGPSEC_SUCCESS 0
+#define BGPSEC_ERROR   1
+
+
 /* These match the defined algorithm bytes from the protocol definition */
 
 /* Algorithm #:         1
@@ -93,5 +98,11 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
 int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
                                     xxxunknown *fp, int signature_algorithm,
                                     byte *signature, int signature_len);
+
+/* --- key manipulation routines (loading, unloading, etc) --- */
+
+/* saves a key to a file name with two suffixes: .private and .pub */
+int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
+                    int curveId);
 
 #endif 
