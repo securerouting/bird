@@ -25,10 +25,9 @@ int main(int argc, char **argv) {
 
     switch (signature_algorithm) {
     case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
-        curveId = NID_secp192k1;
-        key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
         /* XXX: need the right group */
-        // key_data.ecdsa_key->group = EC_GROUP_new_by_nid(NID_secp192k1);
+        curveId = BGPSEC_DEFAULT_CURVE;
+        key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
         EC_KEY_generate_key(key_data.ecdsa_key);
         break;
     default:
@@ -36,5 +35,5 @@ int main(int argc, char **argv) {
         exit(42);
     }
 
-    return bgpsec_save_key(argv[1], &key_data, curveId);
+    return bgpsec_save_key(argv[1], &key_data, curveId, 1);
 }
