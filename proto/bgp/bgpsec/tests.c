@@ -58,8 +58,12 @@ int main(int argc, char **argv) {
         RESULT(("cert sign: algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
 
         /* save the existing key */
-        ret = bgpsec_save_key("/tmp/testkey", &key_data, curveId);
+        ret = bgpsec_save_key("/tmp/testkey", &key_data, curveId, 1);
         RESULT(("cert sign: saving key function returned: %d (should be %d)",
+                ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
+
+        ret = bgpsec_save_key("/tmp/testkey-public", &key_data, curveId, 0);
+        RESULT(("cert sign: saving pubkey function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
 
         /* modify the private key so it can't be part of the verification */
@@ -93,7 +97,7 @@ int main(int argc, char **argv) {
                ret == BGPSEC_SIGNATURE_MISMATCH);
         
         /* now reload the key from the files and use them to verify it */
-        ret = bgpsec_load_key("/tmp/testkey", &key_data, curveId);
+        ret = bgpsec_load_key("/tmp/testkey", &key_data, curveId, 1);
         RESULT(("cert sign: loading key function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
@@ -107,6 +111,21 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SIGNATURE_MATCH),
                ret == BGPSEC_SIGNATURE_MATCH);
 
+        /* now reload the key from the files and use them to verify it */
+        ret = bgpsec_load_key("/tmp/testkey-public", &key_data, curveId, 0);
+        RESULT(("cert sign: loading public key function returned: %d (should be %d)",
+                ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
+        
+        /* verify that the signature matches again with the loaded key */
+        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+                                                sizeof(data_to_sign),
+                                                key_data,
+                                                signature_algorithms[algorithm_count],
+                                                signature, signature_len);
+        RESULT(("cert sign: verify (pub) signature result: %d (should be %d)",
+                ret, BGPSEC_SIGNATURE_MATCH),
+               ret == BGPSEC_SIGNATURE_MATCH);
+        
         /* generate a signature using a fingerprint */
         /* XXX: set test directory to search for matching fp->certs */
         signature_len =
