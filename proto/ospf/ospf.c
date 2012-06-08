@@ -1145,16 +1145,16 @@ show_lsa_sum_net(struct top_hash_entry *he)
 static inline void
 show_lsa_sum_rt(struct top_hash_entry *he)
 {
-  u32 dst_rid, options;
+  u32 dst_rid;
 
 #ifdef OSPFv2
   struct ospf_lsa_sum *ls = he->lsa_body;
   dst_rid = he->lsa.id;
-  options = 0;
+  // options = 0;
 #else /* OSPFv3 */
   struct ospf_lsa_sum_rt *ls = he->lsa_body;
   dst_rid = ls->drid; 
-  options = ls->options & OPTIONS_MASK;
+  // options = ls->options & OPTIONS_MASK;
 #endif
 
   cli_msg(-1016, "\t\txrouter %R metric %u", dst_rid, ls->metric);
@@ -1471,8 +1471,9 @@ lsa_compare_for_lsadb(const void *p1, const void *p2)
 }
 
 void
-ospf_sh_lsadb(struct proto *p)
+ospf_sh_lsadb(struct lsadb_show_data *ld)
 {
+  struct proto *p = proto_get_named(ld->name, &proto_ospf);
   struct proto_ospf *po = (struct proto_ospf *) p;
   int num = po->gr->hash_entries;
   unsigned int i, j;
@@ -1485,6 +1486,9 @@ ospf_sh_lsadb(struct proto *p)
     cli_msg(0, "");
     return;
   }
+
+  if (ld->router == SH_ROUTER_SELF)
+    ld->router = po->router_id;
 
   struct top_hash_entry *hea[num];
   struct top_hash_entry *he;
@@ -1502,6 +1506,22 @@ ospf_sh_lsadb(struct proto *p)
   {
     struct ospf_lsa_header *lsa = &(hea[i]->lsa);
     int dscope = LSA_SCOPE(lsa);
+
+    if (ld->scope && (dscope != (ld->scope & 0xf000)))
+      continue;
+
+    if ((ld->scope == LSA_SCOPE_AREA) && (hea[i]->domain != ld->area))
+      continue;
+
+    /* Ignore high nibble */
+    if (ld->type && ((lsa->type & 0x0fff) != (ld->type & 0x0fff)))
+      continue;
+
+    if (ld->lsid && (lsa->id != ld->lsid))
+      continue;
+
+    if (ld->router && (lsa->rt != ld->router))
+      continue;
     
     if ((dscope != last_dscope) || (hea[i]->domain != last_domain))
     {

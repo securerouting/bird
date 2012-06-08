@@ -151,7 +151,7 @@ read_iproute_table(char *file, char *prefix, int max)
 #endif // PATH_IPROUTE_DIR
 
 
-static char *config_name = PATH_CONFIG;
+static char *config_name = PATH_CONFIG_FILE;
 
 static int
 cf_read(byte *dest, unsigned int len, int fd)
@@ -170,7 +170,10 @@ cf_open(char *filename)
   int ret;
 
   if (*filename != '/') {
-    snprintf(full_name, sizeof(full_name), "%s/%s", dirname(config_name), filename);
+    char dir[BIRD_FNAME_MAX];
+    strncpy(dir, config_name, sizeof(dir));
+    dir[sizeof(dir)-1] = 0;
+    snprintf(full_name, sizeof(full_name), "%s/%s", dirname(dir), filename);
     full_name[sizeof(full_name)-1] = 0;
     cur = full_name;
   }
@@ -188,7 +191,7 @@ sysdep_preconfig(struct config *c)
   init_list(&c->logfiles);
 
 #ifdef PATH_IPROUTE_DIR
-  // read_iproute_table(PATH_IPROUTE_DIR "/rt_protos", "ipp_", 256);
+  read_iproute_table(PATH_IPROUTE_DIR "/rt_protos", "ipp_", 256);
   read_iproute_table(PATH_IPROUTE_DIR "/rt_realms", "ipr_", 256);
   read_iproute_table(PATH_IPROUTE_DIR "/rt_scopes", "ips_", 256);
   read_iproute_table(PATH_IPROUTE_DIR "/rt_tables", "ipt_", 256);
@@ -266,7 +269,7 @@ cmd_reconfig(char *name, int type)
   if (!unix_read_config(&conf, name))
     {
       if (conf->err_msg)
-	cli_msg(8002, "%s, line %d: %s", name, conf->err_lino, conf->err_msg);
+	cli_msg(8002, "%s, line %d: %s", conf->err_file_name, conf->err_lino, conf->err_msg);
       else
 	cli_msg(8002, "%s: %m", name);
       config_free(conf);
@@ -643,6 +646,7 @@ main(int argc, char **argv)
   io_init();
   rt_init();
   if_init();
+  roa_init();
 
   uid_t use_uid = get_uid(use_user);
   gid_t use_gid = get_gid(use_group);

@@ -107,7 +107,17 @@ static inline void
 check_defcost(int cost)
 {
   if ((cost <= 0) || (cost >= LSINFINITY))
-   cf_error("Default cost must be in range 1-%d", LSINFINITY);
+   cf_error("Default cost must be in range 1-%d", LSINFINITY-1);
+}
+
+static inline void
+set_instance_id(unsigned id)
+{
+#ifdef OSPFv3
+  OSPF_PATT->instance_id = id;
+#else
+  cf_error("Instance ID requires OSPFv3");
+#endif
 }
 
 CF_DECLS
@@ -120,8 +130,10 @@ CF_KEYWORDS(NONE, SIMPLE, AUTHENTICATION, STRICT, CRYPTOGRAPHIC)
 CF_KEYWORDS(ELIGIBLE, POLL, NETWORKS, HIDDEN, VIRTUAL, CHECK, LINK)
 CF_KEYWORDS(RX, BUFFER, LARGE, NORMAL, STUBNET, HIDDEN, SUMMARY, TAG, EXTERNAL)
 CF_KEYWORDS(WAIT, DELAY, LSADB, ECMP, LIMIT, WEIGHT, NSSA, TRANSLATOR, STABILITY)
+CF_KEYWORDS(GLOBAL, LSID, ROUTER, SELF, INSTANCE, REAL)
 
 %type <t> opttext
+%type <ld> lsadb_args
 
 CF_GRAMMAR
 
@@ -216,8 +228,8 @@ ospf_stubnet_item:
  ;
 
 ospf_vlink:
-   ospf_vlink_start '{' ospf_vlink_opts '}' { ospf_iface_finish(); }
- | ospf_vlink_start
+   ospf_vlink_start ospf_instance_id '{' ospf_vlink_opts '}' { ospf_iface_finish(); }
+ | ospf_vlink_start ospf_instance_id { ospf_iface_finish(); }
  ;
 
 ospf_vlink_opts:
@@ -275,6 +287,7 @@ ospf_iface_item:
  | TYPE PTP { OSPF_PATT->type = OSPF_IT_PTP ; }
  | TYPE POINTOMULTIPOINT { OSPF_PATT->type = OSPF_IT_PTMP ; }
  | TYPE PTMP { OSPF_PATT->type = OSPF_IT_PTMP ; }
+ | REAL BROADCAST bool { OSPF_PATT->real_bcast = $3; if (OSPF_VERSION != 2) cf_error("Real broadcast option requires OSPFv2"); }
  | TRANSMIT DELAY expr { OSPF_PATT->inftransdelay = $3 ; if (($3<=0) || ($3>65535)) cf_error("Transmit delay must be in range 1-65535"); }
  | PRIORITY expr { OSPF_PATT->priority = $2 ; if (($2<0) || ($2>255)) cf_error("Priority must be in range 0-255"); }
  | STRICT NONBROADCAST bool { OSPF_PATT->strictnbma = $3 ; }
@@ -362,6 +375,11 @@ ospf_iface_start:
  }
 ;
 
+ospf_instance_id:
+   /* empty */
+ | INSTANCE expr { set_instance_id($2); }
+ ;
+
 ospf_iface_opts:
    /* empty */
  | ospf_iface_opts ospf_iface_item ';'
@@ -373,7 +391,7 @@ ospf_iface_opt_list:
  ;
 
 ospf_iface:
-  ospf_iface_start iface_patt_list ospf_iface_opt_list { ospf_iface_finish(); }
+  ospf_iface_start iface_patt_list ospf_instance_id ospf_iface_opt_list { ospf_iface_finish(); }
  ;
 
 opttext:
@@ -386,7 +404,8 @@ CF_ADDTO(dynamic_attr, OSPF_METRIC2 { $$ = f_new_dynamic_attr(EAF_TYPE_INT | EAF
 CF_ADDTO(dynamic_attr, OSPF_TAG { $$ = f_new_dynamic_attr(EAF_TYPE_INT | EAF_TEMP, T_INT, EA_OSPF_TAG); })
 CF_ADDTO(dynamic_attr, OSPF_ROUTER_ID { $$ = f_new_dynamic_attr(EAF_TYPE_ROUTER_ID | EAF_TEMP, T_QUAD, EA_OSPF_ROUTER_ID); })
 
-CF_CLI(SHOW OSPF, optsym, [<name>], [[Show information about OSPF protocol]])
+CF_CLI_HELP(SHOW OSPF, ..., [[Show information about OSPF protocol]]);
+CF_CLI(SHOW OSPF, optsym, [<name>], [[Show information about OSPF protocol XXX]])
 { ospf_sh(proto_get_named($3, &proto_ospf)); };
 
 CF_CLI(SHOW OSPF NEIGHBORS, optsym opttext, [<name>] [\"<interface>\"], [[Show information about OSPF neighbors]])
@@ -411,8 +430,23 @@ CF_CLI(SHOW OSPF STATE, optsym opttext, [<name>], [[Show information about reach
 CF_CLI(SHOW OSPF STATE ALL, optsym opttext, [<name>], [[Show information about all OSPF network state]])
 { ospf_sh_state(proto_get_named($5, &proto_ospf), 1, 0); };
 
-CF_CLI(SHOW OSPF LSADB, optsym opttext, [<name>], [[Show content of OSPF LSA database]])
-{ ospf_sh_lsadb(proto_get_named($4, &proto_ospf)); };
+CF_CLI_HELP(SHOW OSPF LSADB, ..., [[Show content of OSPF LSA database]]);
+CF_CLI(SHOW OSPF LSADB, lsadb_args, [global | area <id> | link] [type <num>] [lsid <id>] [self | router <id>] [<proto>], [[Show content of OSPF LSA database]])
+{ ospf_sh_lsadb($4); };
+
+lsadb_args:
+   /* empty */ {
+     $$ = cfg_allocz(sizeof(struct lsadb_show_data));
+   }
+ | lsadb_args GLOBAL { $$ = $1; $$->scope = LSA_SCOPE_AS; }
+ | lsadb_args AREA idval { $$ = $1; $$->scope = LSA_SCOPE_AREA; $$->area = $3 }
+ | lsadb_args LINK { $$ = $1; $$->scope = 1; /* hack, 0 is no filter */ }
+ | lsadb_args TYPE NUM { $$ = $1; $$->type = $3; }
+ | lsadb_args LSID idval { $$ = $1; $$->lsid = $3; }
+ | lsadb_args SELF { $$ = $1; $$->router = SH_ROUTER_SELF; }
+ | lsadb_args ROUTER idval { $$ = $1; $$->router = $3; }
+ | lsadb_args SYM { $$ = $1; $$->name = $2; }
+ ;
 
 CF_CODE
 

@@ -358,6 +358,22 @@ protocol rip {
 	routing table is created implicitly, other routing tables have
 	to be added by this command.
 
+	<tag>roa table [ { roa table options ... } ] <m/name/</tag>
+	Create a new ROA (Route Origin Authorization) table. ROA
+	tables can be used to validate route origination of BGP
+	routes. A ROA table contains ROA entries, each consist of a
+	network prefix, a max prefix length and an AS number. A ROA
+	entry specifies prefixes which could be originated by that AS
+	number. ROA tables could be filled with data from RPKI (RFC
+	6480) or from public databases like Whois. ROA tables are 
+	examined by <cf/roa_check()/ operator in filters.
+
+	Currently, there is just one option,
+	<cf>roa <m/prefix/ max <m/num/ as <m/num/</cf>, which
+	can be used to populate the ROA table with static ROA
+	entries. The option may be used multiple times. Other entries
+	can be added dynamically by <cf/add roa/ command.
+
 	<tag>eval <m/expr/</tag> Evaluates given filter expression. It
 	is used by us for testing of filters.
 </descrip>
@@ -410,10 +426,37 @@ to zero to disable it. An empty <cf><m/switch/</cf> is equivalent to <cf/on/
 	uses global router id.
 
 	<tag>import all | none | filter <m/name/ | filter { <m/filter commands/ } | where <m/filter expression/</tag> 
-	Specify a filter to be used for filtering routes coming from the protocol to the routing table. <cf/all/ is shorthand for <cf/where true/ and <cf/none/ is shorthand for <cf/where false/. Default: <cf/all/.
+	Specify a filter to be used for filtering routes coming from
+	the protocol to the routing table. <cf/all/ is shorthand for
+	<cf/where true/ and <cf/none/ is shorthand for
+	<cf/where false/. Default: <cf/all/.
 
-	<tag>export <m/filter/</tag> This is similar to the <cf>import</cf> keyword, except that it
-	works in the direction from the routing table to the protocol. Default: <cf/none/.
+	<tag>export <m/filter/</tag>
+	This is similar to the <cf>import</cf> keyword, except that it
+	works in the direction from the routing table to the protocol.
+	Default: <cf/none/.
+
+	<tag>import limit <m/number/ [action warn | block | restart | disable]</tag>
+	Specify an import route limit (a maximum number of routes
+	imported from the protocol) and optionally the action to be
+	taken when the limit is hit. Warn action just prints warning
+	log message. Block action ignores new routes coming from the
+	protocol. Restart and disable actions shut the protocol down
+	like appropriate commands. Disable is the default action if an
+	action is not explicitly specified. Note that limits are reset
+	during protocol reconfigure, reload or restart.
+	Default: <cf/none/.
+
+	<tag>export limit <m/number/ [action warn | block | restart | disable]</tag>
+	Specify an export route limit, works similarly to
+	the <cf>import limit</cf> option, but for the routes exported
+	to the protocol. This option is experimental, there are some
+	problems in details of its behavior -- the number of exported
+	routes can temporarily exceed the limit without triggering it
+	during protocol reload, exported routes counter ignores route
+	blocking and block action also blocks route updates of alread
+	accepted routes -- and these details will probably change in
+	the future. Default: <cf/none/.
 
 	<tag>description "<m/text/"</tag> This is an optional
 	description of the protocol. It is displayed as a part of the
@@ -561,13 +604,16 @@ This argument can be omitted if there exists only a single instance.
 	link-state database.  It is just a stripped-down version of
 	'show ospf state'.
 
+	<tag>show ospf lsadb [global | area <m/id/ | link] [type <m/num/] [lsid <m/id/] [self | router <m/id/] [<m/name/] </tag>
+	Show contents of an OSPF LSA database. Options could be used to filter entries.
+
 	<tag>show static [<m/name/]</tag>
 	Show detailed information about static routes.
 
 	<tag>show interfaces [summary]</tag>
 	Show the list of interfaces. For each interface, print its type, state, MTU and addresses assigned. 
 
-	<tag>show symbols</tag>
+	<tag>show symbols [table|filter|function|protocol|template|roa|<m/symbol/]</tag>
 	Show the list of symbols defined in the configuration (names of protocols, routing tables etc.).
 
 	<tag>show route [[for] <m/prefix/|<m/IP/] [table <m/sym/] [filter <m/f/|where <m/c/] [(export|preexport) <m/p/] [protocol <m/p/] [<m/options/]</tag>
@@ -595,6 +641,29 @@ This argument can be omitted if there exists only a single instance.
 	<p>The <cf/stats/ switch requests showing of route statistics (the
 	number of networks, number of routes before and after filtering). If
 	you use <cf/count/ instead, only the statistics will be printed.
+
+	<tag>show roa [<m/prefix/ | in <m/prefix/ | for <m/prefix/] [as <m/num/] [table <m/t/>]</tag>
+	Show contents of a ROA table (by default of the first one).
+	You can specify a <m/prefix/ to print ROA entries for a
+	specific network. If you use <cf>for <m/prefix/</cf>, you'll
+	get all entries relevant for route validation of the network
+	prefix; i.e., ROA entries whose prefixes cover the network
+	prefix. Or you can use <cf>in <m/prefix/</cf> to get ROA entries
+	covered by the network prefix. You could also use <cf/as/ option
+	to show just entries for given AS.
+
+	<tag>add roa <m/prefix/ max <m/num/] as <m/num/ [table <m/t/>]</tag>
+	Add a new ROA entry to a ROA table. Such entry is called
+	<it/dynamic/ compared to <it/static/ entries specified in the
+	config file. These dynamic entries survive reconfiguration.
+
+	<tag>delete roa <m/prefix/ max <m/num/] as <m/num/ [table <m/t/>]</tag>
+	Delete the specified ROA entry from a ROA table. Only dynamic
+	ROA entries (i.e., the ones added by <cf/add roa/ command) can
+	be deleted.
+
+	<tag>flush roa [table <m/t/>]</tag>
+	Remove all dynamic ROA entries from a ROA table.
 
 	<tag>configure [soft] ["<m/config file/"]</tag>
 	Reload configuration from a given file. BIRD will smoothly
@@ -875,19 +944,22 @@ incompatible with each other (that is to prevent you from shooting in the foot).
 
           <cf>add(<m/C/,<m/P/)</cf> adds pair (or quad) <m/P/ to clist
 	  <m/C/ and returns the result.  If item <m/P/ is already in
-	  clist <m/C/, it does nothing.
+	  clist <m/C/, it does nothing. <m/P/ may also be a clist,
+	  in that case all its members are added; i.e., it works as clist union.
 
           <cf>delete(<m/C/,<m/P/)</cf> deletes pair (or quad)
 	  <m/P/ from clist <m/C/ and returns the result.  If clist
 	  <m/C/ does not contain item <m/P/, it does nothing.
 	  <m/P/ may also be a pair (or quad) set, in that case the
 	  operator deletes all items from clist <m/C/ that are also
-	  members of set <m/P/.
+	  members of set <m/P/. Moreover, <m/P/ may also be a clist,
+	  which works analogously; i.e., it works as clist difference.
 
           <cf>filter(<m/C/,<m/P/)</cf> deletes all items from clist
 	  <m/C/ that are not members of pair (or quad) set <m/P/.
 	  I.e., <cf/filter/ do the same as <cf/delete/ with inverted
-	  set <m/P/.
+	  set <m/P/. <m/P/ may also be a clist, which works analogously;
+	  i.e., it works as clist intersection.
 
           Statement <cf><m/C/ = add(<m/C/, <m/P/);</cf> can be shortened to
           <cf><m/C/.add(<m/P/);</cf> if <m/C/ is appropriate route
@@ -910,7 +982,18 @@ incompatible with each other (that is to prevent you from shooting in the foot).
 Special operators include <cf/&tilde;/ for "is element of a set" operation - it can be
 used on element and set of elements of the same type (returning true if element is contained in the given set), or
 on two strings (returning true if first string matches a shell-like pattern stored in second string) or on IP and prefix (returning true if IP is within the range defined by that prefix), or on
-prefix and prefix (returning true if first prefix is more specific than second one) or on bgppath and bgpmask (returning true if the path matches the mask) or on pair/quad and clist (returning true if the pair/quad is element of the clist) or on clist and pair/quad set (returning true if there is an element of the clist that is also a member of the pair/quad set).
+prefix and prefix (returning true if first prefix is more specific than second one) or on bgppath and bgpmask (returning true if the path matches the mask) or on number and bgppath (returning true if the number is in the path) or on pair/quad and clist (returning true if the pair/quad is element of the clist) or on clist and pair/quad set (returning true if there is an element of the clist that is also a member of the pair/quad set).
+
+<p>There is one operator related to ROA infrastructure -
+<cf/roa_check()/. It examines a ROA table and does RFC 6483 route
+origin validation for a given network prefix. The basic usage
+is <cf>roa_check(<m/table/)</cf>, which checks current route (which
+should be from BGP to have AS_PATH argument) in the specified ROA
+table and returns ROA_UNKNOWN if there is no relevant ROA, ROA_VALID
+if there is a matching ROA, or ROA_INVALID if there are some relevant
+ROAs but none of them match. There is also an extended variant
+<cf>roa_check(<m/table/, <m/prefix/, <m/asn/)</cf>, which allows to
+specify a prefix and an ASN as arguments.
 
 
 <sect>Control structures
@@ -989,7 +1072,16 @@ undefined value is regarded as empty clist for most purposes.
 	routes). Read-only.
 
 	<tag><m/enum/ dest</tag>
-	Type of destination the packets should be sent to (<cf/RTD_ROUTER/ for forwarding to a neighboring router, <cf/RTD_DEVICE/ for routing to a directly-connected network, <cf/RTD_BLACKHOLE/ for packets to be silently discarded, <cf/RTD_UNREACHABLE/, <cf/RTD_PROHIBIT/ for packets that should be returned with ICMP host unreachable / ICMP administratively prohibited messages). Read-only.
+	Type of destination the packets should be sent to
+	(<cf/RTD_ROUTER/ for forwarding to a neighboring router,
+	<cf/RTD_DEVICE/ for routing to a directly-connected network,
+	<cf/RTD_MULTIPATH/ for multipath destinations,
+	<cf/RTD_BLACKHOLE/ for packets to be silently discarded,
+	<cf/RTD_UNREACHABLE/, <cf/RTD_PROHIBIT/ for packets that
+	should be returned with ICMP host unreachable / ICMP
+	administratively prohibited messages). Can be changed, but
+	only to <cf/RTD_BLACKHOLE/, <cf/RTD_UNREACHABLE/ or
+	<cf/RTD_PROHIBIT/.
 
 	<tag><m/int/ igp_metric</tag>
 	The optional attribute that can be used to specify a distance
@@ -1271,7 +1363,8 @@ for each neighbor using the following configuration parameters:
 
 	<tag>route limit <m/number/</tag> The maximal number of routes
 	that may be imported from the protocol. If the route limit is
-	exceeded, the connection is closed with error. Default: no limit.
+	exceeded, the connection is closed with error. Limit is currently implemented as
+	<cf/import limit number exceed restart/. Default: no limit.
 
 	<tag>disable after error <m/switch/</tag> When an error is encountered (either
 	locally or by the other side), disable the instance automatically
@@ -1562,7 +1655,7 @@ kernel table.
 <p>Because the kernel protocol is partially integrated with the
 connected routing table, there are two limitations - it is not
 possible to connect more kernel protocols to the same routing table
-and changing route attributes (even the kernel ones) in an export
+and changing route destination/gateway in an export
 filter of a kernel protocol does not work. Both limitations can be
 overcome using another routing table and the pipe protocol.
 
@@ -1597,6 +1690,16 @@ are translated to appropriate system (and OS-specific) route attributes.
 We support these attributes:
 
 <descrip>
+	<tag>int <cf/krt_source/</tag> The original source of the imported
+	kernel route.  The value is system-dependent. On Linux, it is
+	a value of the protocol field of the route. See
+	/etc/iproute2/rt_protos for common values.  On BSD, it is
+	based on STATIC and PROTOx flags. The attribute is read-only.
+
+	<tag>int <cf/krt_metric/</tag> The kernel metric of
+	the route.  When multiple same routes are in a kernel routing
+	table, the Linux kernel chooses one with lower metric.
+
 	<tag>ip <cf/krt_prefsrc/</tag> (Linux) The preferred source address.
  	Used in source address selection for outgoing packets. Have to
  	be one of IP addresses of the router.
@@ -1708,7 +1811,7 @@ protocol ospf &lt;name&gt; {
 			summary &lt;switch&gt;;
 			cost &lt;num&gt;;
 		}
-		interface &lt;interface pattern&gt; {
+		interface &lt;interface pattern&gt; [instance &lt;num&gt;] {
 			cost &lt;num&gt;;
 			stub &lt;switch&gt;;
 			hello &lt;num&gt;;
@@ -1722,6 +1825,7 @@ protocol ospf &lt;name&gt; {
 			type [broadcast|bcast|pointopoint|ptp|
 				nonbroadcast|nbma|pointomultipoint|ptmp];
 			strict nonbroadcast &lt;switch&gt;;
+			real broadcast &lt;switch&gt;;
 			check link &lt;switch&gt;;
 			ecmp weight &lt;num&gt;;
 			authentication [none|simple|cryptographic];
@@ -1738,7 +1842,7 @@ protocol ospf &lt;name&gt; {
 				&lt;ip&gt; eligible;
 			};
 		};
-		virtual link &lt;id&gt;	{
+		virtual link &lt;id&gt; [instance &lt;num&gt;] {
 			hello &lt;num&gt;;
 			retransmit &lt;num&gt;;
 			wait &lt;num&gt;;
@@ -1858,14 +1962,19 @@ protocol ospf &lt;name&gt; {
 	 subnetworks of given stub network are suppressed. This might
 	 be used, for example, to aggregate generated stub networks.
 	 
-	<tag>interface <M>pattern</M></tag>
+	<tag>interface <M>pattern</M> [instance <m/num/]</tag>
 	 Defines that the specified interfaces belong to the area being defined.
 	 See <ref id="dsc-iface" name="interface"> common option for detailed description.
+	 In OSPFv3, you can specify instance ID for that interface
+	 description, so it is possible to have several instances of
+	 that interface with different options or even in different areas.
 
-	<tag>virtual link <M>id</M></tag>
-	 Virtual link to router with the router id. Virtual link acts as a
-         point-to-point interface belonging to backbone. The actual area is
-         used as transport area. This item cannot be in the backbone.
+	<tag>virtual link <M>id</M> [instance <m/num/]</tag>
+	 Virtual link to router with the router id. Virtual link acts
+         as a point-to-point interface belonging to backbone. The
+         actual area is used as transport area. This item cannot be in
+         the backbone. In OSPFv3, you could also use several virtual
+         links to one destination with different instance IDs.
 
 	<tag>cost <M>num</M></tag>
 	 Specifies output cost (metric) of an interface. Default value is 10.
@@ -1949,6 +2058,16 @@ protocol ospf &lt;name&gt; {
 	<tag>strict nonbroadcast <M>switch</M></tag>
 	 If set, don't send hello to any undefined neighbor. This switch
 	 is ignored on other than NBMA or PtMP networks. Default value is no.
+
+	<tag>real broadcast <m/switch/</tag>
+	 In <cf/type broadcast/ or <cf/type ptp/ network
+	 configuration, OSPF packets are sent as IP multicast
+	 packets. This option changes the behavior to using
+	 old-fashioned IP broadcast packets. This may be useful as a
+	 workaround if IP multicast for some reason does not work or
+	 does not work reliably. This is a non-standard option and
+	 probably is not interoperable with other OSPF
+	 implementations. Default value is no.
 
 	<tag>check link <M>switch</M></tag>
 	 If set, a hardware link state (reported by OS) is taken into
@@ -2085,17 +2204,18 @@ and vice versa, depending on what's allowed by the filters. Export filters contr
 of routes from the primary table to the secondary one, import filters control the opposite
 direction.
 
-<p>The Pipe protocol may work in the opaque mode or in the transparent
-mode. In the opaque mode, the Pipe protocol retransmits optimal route
+<p>The Pipe protocol may work in the transparent mode mode or in the opaque mode.
+In the transparent mode, the Pipe protocol retransmits all routes from
+one table to the other table, retaining their original source and
+attributes.  If import and export filters are set to accept, then both
+tables would have the same content. The transparent mode is the default mode.
+
+<p>In the opaque mode, the Pipe protocol retransmits optimal route
 from one table to the other table in a similar way like other
 protocols send and receive routes. Retransmitted route will have the
 source set to the Pipe protocol, which may limit access to protocol
-specific route attributes. The opaque mode is a default mode.
-
-<p>In transparent mode, the Pipe protocol retransmits all routes from
-one table to the other table, retaining their original source and
-attributes.  If import and export filters are set to accept, then both
-tables would have the same content. The mode can be set by
+specific route attributes. This mode is mainly for compatibility, it
+is not suggested for new configs. The mode can be changed by
 <tt/mode/ option.
 
 <p>The primary use of multiple routing tables and the Pipe protocol is for policy routing,

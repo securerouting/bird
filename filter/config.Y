@@ -259,6 +259,7 @@ CF_KEYWORDS(FUNCTION, PRINT, PRINTN, UNSET, RETURN,
 	DEFINED,
 	ADD, DELETE, CONTAINS, RESET,
 	PREPEND, FIRST, LAST, MATCH,
+	ROA_CHECK,
 	EMPTY,
 	FILTER, WHERE, EVAL)
 
@@ -495,7 +496,7 @@ pair_item:
      /* Hack: $2 and $4 should be pair_expr, but that would cause shift/reduce conflict */
      if ((pair_a($2) != pair_b($2)) || (pair_a($4) != pair_b($4)))
        cf_error("syntax error");
-     $$ = f_new_pair_item(pair_b($2), pair_b($4), $8, $10); 
+     $$ = f_new_pair_item(pair_b($2), $8, pair_b($4), $10); 
    }
  ;
 
@@ -702,7 +703,7 @@ static_attr:
  | SOURCE  { $$ = f_new_inst(); $$->aux = T_ENUM_RTS;   $$->a2.i = OFFSETOF(struct rta, source); }
  | SCOPE   { $$ = f_new_inst(); $$->aux = T_ENUM_SCOPE; $$->a2.i = OFFSETOF(struct rta, scope);  $$->a1.i = 1; }
  | CAST    { $$ = f_new_inst(); $$->aux = T_ENUM_RTC;   $$->a2.i = OFFSETOF(struct rta, cast); }
- | DEST    { $$ = f_new_inst(); $$->aux = T_ENUM_RTD;   $$->a2.i = OFFSETOF(struct rta, dest); }
+ | DEST    { $$ = f_new_inst(); $$->aux = T_ENUM_RTD;   $$->a2.i = OFFSETOF(struct rta, dest);   $$->a1.i = 1; }
  ;
 
 term:
@@ -755,6 +756,9 @@ term:
  | DELETE '(' term ',' term ')' { $$ = f_new_inst(); $$->code = P('C','a'); $$->a1.p = $3; $$->a2.p = $5; $$->aux = 'd'; }
  | FILTER '(' term ',' term ')' { $$ = f_new_inst(); $$->code = P('C','a'); $$->a1.p = $3; $$->a2.p = $5; $$->aux = 'f'; }
 
+ | ROA_CHECK '(' SYM ')' { $$ = f_generate_roa_check($3, NULL, NULL); }
+ | ROA_CHECK '(' SYM ',' term ',' term ')' { $$ = f_generate_roa_check($3, $5, $7); }
+
 /* | term '.' LEN { $$->code = P('P','l'); } */
 
 /* function_call is inlined here */
@@ -801,7 +805,6 @@ print_list: /* EMPTY */ { $$ = NULL; }
        $$ = $1;
      } else $$ = $3;
    }
- 
  ;
 
 var_listn: term { 
