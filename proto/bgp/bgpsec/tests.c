@@ -92,6 +92,21 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SIGNATURE_MISMATCH),
                ret == BGPSEC_SIGNATURE_MISMATCH);
         
+        /* now reload the key from the files and use them to verify it */
+        ret = bgpsec_load_key("/tmp/testkey", &key_data, curveId);
+        RESULT(("cert sign: loading key function returned: %d (should be %d)",
+                ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
+        
+        /* verify that the signature matches again with the loaded key */
+        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+                                                sizeof(data_to_sign),
+                                                key_data,
+                                                signature_algorithms[algorithm_count],
+                                                signature, signature_len);
+        RESULT(("cert sign: verify signature result: %d (should be %d)",
+                ret, BGPSEC_SIGNATURE_MATCH),
+               ret == BGPSEC_SIGNATURE_MATCH);
+
         /* generate a signature using a fingerprint */
         /* XXX: set test directory to search for matching fp->certs */
         signature_len =
