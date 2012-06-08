@@ -413,7 +413,7 @@ cli_init_unix(uid_t use_uid, gid_t use_gid)
   sock *s;
 
   cli_init();
-  s = cli_sk = sk_new(cli_pool);
+  s = cli_sk = sk_new_sock(cli_pool);
   s->type = SK_UNIX_PASSIVE;
   s->rx_hook = cli_connect;
   s->rbsize = 1024;

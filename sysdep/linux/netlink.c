@@ -1066,7 +1066,7 @@ nl_open_async(void)
       return;
     }
 
-  sk = nl_async_sk = sk_new(krt_pool);
+  sk = nl_async_sk = sk_new_sock(krt_pool);
   sk->type = SK_MAGIC;
   sk->rx_hook = nl_async_hook;
   sk->fd = fd;

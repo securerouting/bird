@@ -558,7 +558,7 @@ bgp_connect(struct bgp_proto *p)	/* Enter Connect state and start establishing c
   int hops = p->cf->multihop ? : 1;
 
   DBG("BGP: Connecting\n");
-  s = sk_new(p->p.pool);
+  s = sk_new_sock(p->p.pool);
   s->type = SK_TCP_ACTIVE;
   s->saddr = p->source_addr;
   s->daddr = p->cf->remote_ip;
@@ -674,7 +674,7 @@ bgp_listen_sock_err(sock *sk UNUSED, int err)
 static sock *
 bgp_setup_listen_sk(ip_addr addr, unsigned port, u32 flags)
 {
-  sock *s = sk_new(&root_pool);
+  sock *s = sk_new_sock(&root_pool);
   DBG("BGP: Creating listening socket\n");
   s->type = SK_TCP_PASSIVE;
   s->ttl = 255;

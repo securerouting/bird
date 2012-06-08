@@ -723,7 +723,7 @@ krt_sys_start(struct krt_proto *x, int first UNUSED)
   if( (rt_sock = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC)) < 0)
     die("Cannot open kernel socket for routes");
 
-  sk_rt = sk_new(krt_pool);
+  sk_rt = sk_new_sock(krt_pool);
   sk_rt->type = SK_MAGIC;
   sk_rt->rx_hook = krt_sock_hook;
   sk_rt->fd = rt_sock;
