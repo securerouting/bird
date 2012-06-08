@@ -22,10 +22,15 @@ int bgpsec_sign_data_with_fp(byte *octets, int octets_len, xxxunknown *fp,
                              int algorithm, byte *signature,
                              int in_signature_len) {
 
-    bgpsec_key_data keys;
+    bgpsec_key_data key;
 
-    /* XXX: find proper cert */
-    return bgpsec_sign_data_with_cert(octets, octets_len, keys,
+    if (BGPSEC_SUCCESS !=
+        bgpsec_load_key_from_fp(fp, &key, BGPSEC_DEFAULT_CURVE, 1)) {
+        ERROR("");
+    }
+
+
+    return bgpsec_sign_data_with_cert(octets, octets_len, key,
                                       algorithm, signature, in_signature_len);
                                       
 }
@@ -113,11 +118,15 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
 int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
                                     xxxunknown *fp, int signature_algorithm,
                                     byte *signature, int signature_len) {
-    bgpsec_key_data keys;
+    bgpsec_key_data key;
 
-    /* XXX: find proper cert */
-    return bgpsec_verify_signature_with_cert(octets, octets_len,
-                                             keys,
+    if (BGPSEC_SUCCESS !=
+        bgpsec_load_key_from_fp(fp, &key, BGPSEC_DEFAULT_CURVE, 0)) {
+        ERROR("");
+    }
+
+
+    return bgpsec_verify_signature_with_cert(octets, octets_len, key,
                                              signature_algorithm,
                                              signature, signature_len);
 }
@@ -243,6 +252,27 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     }
 
     return BGPSEC_SUCCESS;
+}
+
+int bgpsec_load_key_from_fp(const char *fp, bgpsec_key_data *key_data,
+                            int curveId, int loadPrivateKey) {
+    char filenamebuf[MAXPATHLEN];
+    char octetBuffer[4096];
+    BIGNUM *privateData = NULL;
+    EC_POINT *publicKey;
+    FILE *loadFrom;
+    size_t len;
+    int ret;
+    EC_GROUP *ecGroup;
+
+    /* XXX: is the incoming fp binary or pre-printed hex?  This assumes hex */
+    
+    /* XXX: build a hash tree instead? */
+    filenamebuf[sizeof(filenamebuf)-1] = '\0';
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%s",
+             KEY_REPO_PATH, fp);
+
+    return bgpsec_load_key(filenamebuf, key_data, curveId, loadPrivateKey);
 }
 
 int bgpsec_get_filesize(const char *filename) {

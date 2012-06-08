@@ -17,6 +17,16 @@
 
 #include "nest/route.h"
 
+/* XXX: these need to be configurable in the bird config file instead */
+#define KEY_REPO_PATH "/tmp/bgpsec-keys"
+
+/* XXX: temporary curve to use; needs the real one */
+#define BGPSEC_DEFAULT_CURVE NID_secp192k1
+
+/*
+ * structure to store keying data in; we create a generic union until
+ * we know what type of key we actually want to make the routines generic
+ */
 typedef union {
    X509     *x509_public;
    EVP_PKEY *x509_private;
