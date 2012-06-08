@@ -662,7 +662,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
 				   (sig_segment_len + 11) );
       ADVANCE(w, remains, rv);
-      put_u64(w, &exp_time);
+      put_u64(w, exp_time);
       ADVANCE(w, remains, 8);
       memcpy(w, &algo_id, 1);
       ADVANCE(w, remains, 1);
@@ -736,7 +736,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
 				   (11 + new_sig_block_length) );
       ADVANCE(w, remains, rv);
-      put_u64(w, &exp_time);
+      put_u64(w, exp_time);
       ADVANCE(w, remains, 8);
       memcpy(w, &algo_id, 1);
       ADVANCE(w, remains, 1);
@@ -756,6 +756,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
       /* add the old sig segments */
       int cseg = 0;
       while ( cseg < sblock->number_of_sig_segments ) {
+      memcpy(w, &sig_segment_len, 2);
 	memcpy(w, &sblock->sig_segments[cseg].pcount, 1);
 	ADVANCE(w, remains, 1);
 	memcpy(w, &ski_len, 1);
