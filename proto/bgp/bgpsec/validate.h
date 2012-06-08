@@ -21,7 +21,9 @@
 #define KEY_REPO_PATH "/tmp/bgpsec-keys"
 
 /* XXX: temporary curve to use; needs the real one */
-#define BGPSEC_DEFAULT_CURVE NID_secp192k1
+/* the real one should be NID_secp256r1 (the 'r' is the difference) */
+/* but doesn't exist in openssl at this point? */
+#define BGPSEC_DEFAULT_CURVE NID_secp256k1
 
 /*
  * structure to store keying data in; we create a generic union until
