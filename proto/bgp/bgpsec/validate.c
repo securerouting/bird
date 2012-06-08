@@ -18,14 +18,14 @@
 #define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_SUCCESS); } while(0);
 
 
-int bgpsec_sign_data_with_fp(byte *octets, int octets_len, xxxunknown *fp,
+int bgpsec_sign_data_with_ski(byte *octets, int octets_len, xxxunknown *ski,
                              int algorithm, byte *signature,
                              int in_signature_len) {
 
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_fp(fp, &key, BGPSEC_DEFAULT_CURVE, 1)) {
+        bgpsec_load_key_from_ski(ski, &key, BGPSEC_DEFAULT_CURVE, 1)) {
         ERROR("");
     }
 
@@ -115,13 +115,13 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
     return BGPSEC_SIGNATURE_MISMATCH;
 }
     
-int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
-                                    xxxunknown *fp, int signature_algorithm,
+int bgpsec_verify_signature_with_ski(byte *octets, int octets_len,
+                                    xxxunknown *ski, int signature_algorithm,
                                     byte *signature, int signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_fp(fp, &key, BGPSEC_DEFAULT_CURVE, 0)) {
+        bgpsec_load_key_from_ski(ski, &key, BGPSEC_DEFAULT_CURVE, 0)) {
         ERROR("");
     }
 
@@ -254,7 +254,7 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     return BGPSEC_SUCCESS;
 }
 
-int bgpsec_load_key_from_fp(const char *fp, bgpsec_key_data *key_data,
+int bgpsec_load_key_from_ski(const char *ski, bgpsec_key_data *key_data,
                             int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
@@ -265,12 +265,12 @@ int bgpsec_load_key_from_fp(const char *fp, bgpsec_key_data *key_data,
     int ret;
     EC_GROUP *ecGroup;
 
-    /* XXX: is the incoming fp binary or pre-printed hex?  This assumes hex */
+    /* XXX: is the incoming ski binary or pre-printed hex?  This assumes hex */
     
     /* XXX: build a hash tree instead? */
     filenamebuf[sizeof(filenamebuf)-1] = '\0';
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%s",
-             KEY_REPO_PATH, fp);
+             KEY_REPO_PATH, ski);
 
     return bgpsec_load_key(filenamebuf, key_data, curveId, loadPrivateKey);
 }

@@ -69,7 +69,7 @@ typedef void xxxunknown;
  *
  * Returns: The length of the signature actually created, or -1 on error.
  */
-int bgpsec_sign_data_with_fp(byte *octets, int octets_len, xxxunknown *fp,
+int bgpsec_sign_data_with_ski(byte *octets, int octets_len, xxxunknown *ski,
                              int algorithm, byte *signature,
                              int in_signature_len);
 
@@ -108,8 +108,8 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
                                       int signature_algorithm,
                                       byte *signature, int signature_len);
 
-int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
-                                    xxxunknown *fp, int signature_algorithm,
+int bgpsec_verify_signature_with_ski(byte *octets, int octets_len,
+                                    xxxunknown *ski, int signature_algorithm,
                                     byte *signature, int signature_len);
 
 /* --- key manipulation routines (loading, unloading, etc) --- */

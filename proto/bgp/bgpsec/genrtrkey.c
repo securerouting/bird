@@ -9,7 +9,7 @@ int main(int argc, char **argv) {
     byte signature[1024];
     int  signature_len = sizeof(signature);
     bgpsec_key_data key_data;
-    xxxunknown *fp = 0;
+    xxxunknown *ski = 0;
     int  signature_algorithm = BGPSEC_ALGORITHM_SHA256_ECDSA_P_256;
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];

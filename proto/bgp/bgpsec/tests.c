@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     int  signature_len = sizeof(signature);
     char strBuffer[1024];
     bgpsec_key_data key_data;
-    char *fp = "fakefingerprint";
+    char *ski = "fakefingerprint";
     int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
         mkdir(KEY_REPO_PATH, 0777);
         strBuffer[sizeof(strBuffer)-1] = '\0';
         snprintf(strBuffer, sizeof(strBuffer)-1, "%s/%s",
-                 KEY_REPO_PATH, fp);
+                 KEY_REPO_PATH, ski);
         ret = bgpsec_save_key(strBuffer, &key_data, curveId, 1);
 
         /* modify the private key so it can't be part of the verification */
@@ -142,25 +142,25 @@ int main(int argc, char **argv) {
                ret == BGPSEC_SIGNATURE_MATCH);
         
         /* generate a signature using a fingerprint */
-        /* XXX: set test directory to search for matching fp->certs */
+        /* XXX: set test directory to search for matching ski->certs */
         signature_len =
-            bgpsec_sign_data_with_fp(data_to_sign, sizeof(data_to_sign), fp,
+            bgpsec_sign_data_with_ski(data_to_sign, sizeof(data_to_sign), ski,
                                      signature_algorithms[algorithm_count],
                                      signature, sizeof(signature));
 
-        RESULT(("fp sign:   algorithm %d, signature length (%d) is not negative",
+        RESULT(("ski sign:   algorithm %d, signature length (%d) is not negative",
                 signature_algorithms[algorithm_count], signature_len),
                signature_len > -1);
-        RESULT(("fp sign:   algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
+        RESULT(("ski sign:   algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
         
 
         /* verify that the signature matches */
-        ret = bgpsec_verify_signature_with_fp(data_to_sign,
+        ret = bgpsec_verify_signature_with_ski(data_to_sign,
                                               sizeof(data_to_sign),
-                                              fp,
+                                              ski,
                                               signature_algorithms[algorithm_count],
                                               signature, sizeof(signature));
-        RESULT(("fp sign:   verify signature result: %d (should be %d)",
+        RESULT(("ski sign:   verify signature result: %d (should be %d)",
                 ret, BGPSEC_SIGNATURE_MATCH),
                ret == BGPSEC_SIGNATURE_MATCH);
 
