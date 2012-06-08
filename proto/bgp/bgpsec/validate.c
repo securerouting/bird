@@ -123,7 +123,7 @@ int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
 }
 
 int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
-                    int curveId) {
+                    int curveId, int savePrivateKey) {
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
     const BIGNUM *keydata;
@@ -133,17 +133,20 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
 
     filenamebuf[sizeof(filenamebuf)-1] = '\0';
 
-    /* extract the private key */
-    keydata = EC_KEY_get0_private_key(key_data->ecdsa_key);
-    if (NULL == keydata) {
-        ERROR("failed to extract the private key");
-    }
+    if (savePrivateKey) {
+        /* extract the private key */
+        keydata = EC_KEY_get0_private_key(key_data->ecdsa_key);
+        if (NULL == keydata) {
+            ERROR("failed to extract the private key");
+        }
 
-    /* save the private key */
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.private", filePrefix);
-    saveTo = fopen(filenamebuf, "w");
-    BN_print_fp(saveTo, keydata);
-    fclose(saveTo);
+        /* save the private key */
+        snprintf(filenamebuf, sizeof(filenamebuf)-1,
+                 "%s.private", filePrefix);
+        saveTo = fopen(filenamebuf, "w");
+        BN_print_fp(saveTo, keydata);
+        fclose(saveTo);
+    }
 
     /* extract the public key */
     publicKey = EC_KEY_get0_public_key(key_data->ecdsa_key);
@@ -166,7 +169,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
 }
 
 int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
-                    int curveId) {
+                    int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
     BIGNUM *privateData = NULL;
@@ -182,20 +185,23 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     /* create the basic key structure */
     key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
 
-    /* load the private key */
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.private", filePrefix);
-    loadFrom = fopen(filenamebuf, "r");
-    if (loadFrom == NULL)
-        ERROR("failed to open the private key file");
+    if (loadPrivateKey) {
+        /* load the private key */
+        snprintf(filenamebuf, sizeof(filenamebuf)-1,
+                 "%s.private", filePrefix);
+        loadFrom = fopen(filenamebuf, "r");
+        if (loadFrom == NULL)
+            ERROR("failed to open the private key file");
 
-    len = fread(octetBuffer, sizeof(octetBuffer), 1, loadFrom);
-    if (len < 0)
-        ERROR("failed to read the private key file");
+        len = fread(octetBuffer, sizeof(octetBuffer), 1, loadFrom);
+        if (len < 0)
+            ERROR("failed to read the private key file");
 
-    fclose(loadFrom);
+        fclose(loadFrom);
 
-    BN_hex2bn(&privateData, octetBuffer);
-    EC_KEY_set_private_key(key_data->ecdsa_key, privateData);
+        BN_hex2bn(&privateData, octetBuffer);
+        EC_KEY_set_private_key(key_data->ecdsa_key, privateData);
+    }
 
     /* load the public key */
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", filePrefix);

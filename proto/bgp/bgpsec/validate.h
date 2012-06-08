@@ -104,9 +104,9 @@ int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
 
 /* saves a key to a file name with two suffixes: .private and .pub */
 int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
-                    int curveId);
+                    int curveId, int savePrivateKey);
 
 int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
-                    int curveId);
+                    int curveId, int loadPrivateKey);
 
 #endif 
