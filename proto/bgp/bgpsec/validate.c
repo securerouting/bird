@@ -130,6 +130,9 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     const EC_POINT *publicKey;
     FILE *saveTo;
     size_t len;
+    mode_t oldUmask;
+
+    oldUmask = umask(066);
 
     filenamebuf[sizeof(filenamebuf)-1] = '\0';
 
@@ -137,6 +140,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
         /* extract the private key */
         keydata = EC_KEY_get0_private_key(key_data->ecdsa_key);
         if (NULL == keydata) {
+            umask(oldUmask);
             ERROR("failed to extract the private key");
         }
 
@@ -151,6 +155,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     /* extract the public key */
     publicKey = EC_KEY_get0_public_key(key_data->ecdsa_key);
     if (NULL == publicKey) {
+        umask(oldUmask);
         ERROR("failed to extract the public key");
     }
 
@@ -164,6 +169,8 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     saveTo = fopen(filenamebuf, "w");
     fwrite(octetBuffer, len, 1, saveTo);
     fclose(saveTo);
+
+    umask(oldUmask);
 
     return BGPSEC_SUCCESS;
 }
