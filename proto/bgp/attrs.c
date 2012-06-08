@@ -666,7 +666,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
       ADVANCE(w, remains, 8);
       memcpy(w, &algo_id, 1);
       ADVANCE(w, remains, 1);
-      put_u16(w, &sig_segment_len);
+      put_u16(w, sig_segment_len);
       ADVANCE(w, remains, 2);
       memcpy(w, &pcount, 1);
       ADVANCE(w, remains, 1);
@@ -740,7 +740,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
       ADVANCE(w, remains, 8);
       memcpy(w, &algo_id, 1);
       ADVANCE(w, remains, 1);
-      put_u16(w, &new_sig_block_length);
+      put_u16(w, new_sig_block_length);
       ADVANCE(w, remains, 2);
 
       /* add the new sig segment */
