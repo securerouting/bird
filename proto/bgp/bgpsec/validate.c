@@ -9,6 +9,9 @@
 
 #include <stdio.h>
 #include <sys/param.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "validate.h"
 
@@ -119,10 +122,6 @@ int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
                                              signature, signature_len);
 }
 
-int bgpsec_load_key(const char *filePrefix) {
-    
-}
-
 int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId) {
     char filenamebuf[MAXPATHLEN];
@@ -153,6 +152,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     }
 
     /* save the public key */
+    /* XXX: leaks the curve object */
     len = EC_POINT_point2oct(EC_GROUP_new_by_curve_name(curveId),
                              publicKey, POINT_CONVERSION_COMPRESSED,
                              octetBuffer, sizeof(octetBuffer), NULL);
@@ -163,4 +163,78 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     fclose(saveTo);
 
     return BGPSEC_SUCCESS;
+}
+
+int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
+                    int curveId) {
+    char filenamebuf[MAXPATHLEN];
+    char octetBuffer[4096];
+    BIGNUM *privateData = NULL;
+    EC_POINT *publicKey;
+    FILE *loadFrom;
+    size_t len;
+    int ret;
+    EC_GROUP *ecGroup;
+    
+
+    filenamebuf[sizeof(filenamebuf)-1] = '\0';
+
+    /* create the basic key structure */
+    key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
+
+    /* load the private key */
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.private", filePrefix);
+    loadFrom = fopen(filenamebuf, "r");
+    if (loadFrom == NULL)
+        ERROR("failed to open the private key file");
+
+    len = fread(octetBuffer, sizeof(octetBuffer), 1, loadFrom);
+    if (len < 0)
+        ERROR("failed to read the private key file");
+
+    fclose(loadFrom);
+
+    BN_hex2bn(&privateData, octetBuffer);
+    EC_KEY_set_private_key(key_data->ecdsa_key, privateData);
+
+    /* load the public key */
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", filePrefix);
+
+    /* find the size of the file */
+    
+    loadFrom = fopen(filenamebuf, "r"); 
+    len = bgpsec_get_filesize(filenamebuf);
+    if (fread(octetBuffer, len, 1, loadFrom) != 1) {
+        ERROR("failed to read the public key file");
+    }
+    fclose(loadFrom);
+
+    /* XXX: leaks the curve object */
+    ecGroup = EC_GROUP_new_by_curve_name(curveId);
+    if (NULL == ecGroup) {
+        ERROR("Failed to create a EC_GROUP");
+    }
+    publicKey = EC_POINT_new(ecGroup);
+    if (!publicKey) {
+        ERROR("failed to create a new EC_POINT");
+    }
+    EC_POINT_oct2point(ecGroup, publicKey, octetBuffer, len, NULL);
+
+    ret = EC_KEY_set_public_key(key_data->ecdsa_key, publicKey);
+    if (0 == publicKey) {
+        ERROR("failed to load the public key");
+    }
+
+    if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
+        ERROR("newly loaded EC key not ok");
+    }
+
+    return BGPSEC_SUCCESS;
+}
+
+int bgpsec_get_filesize(const char *filename) {
+    struct stat statbuf;
+
+    stat(filename, &statbuf);
+    return statbuf.st_size;
 }
