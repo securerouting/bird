@@ -18,7 +18,7 @@
 #define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_SUCCESS); } while(0);
 
 
-int bgpsec_sign_data_with_ski(byte *octets, int octets_len, xxxunknown *ski,
+int bgpsec_sign_data_with_ski(byte *octets, int octets_len, char *ski,
                              int algorithm, byte *signature,
                              int in_signature_len) {
 
@@ -116,7 +116,7 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
 }
     
 int bgpsec_verify_signature_with_ski(byte *octets, int octets_len,
-                                    xxxunknown *ski, int signature_algorithm,
+                                    char *ski, int signature_algorithm,
                                     byte *signature, int signature_len) {
     bgpsec_key_data key;
 

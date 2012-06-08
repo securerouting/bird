@@ -51,12 +51,6 @@ typedef union {
 /* XXX: Definiton in draft-turner-sidr-bgpsec-algs-00.txt */
 #define BGPSEC_ALGORITHM_SHA256_ECDSA_P_256 1
 
-/* XXX: To be removed before final push: defines only objects we don't
-   have a structure for yet; anything that references this isn't
-   complete yet */
-typedef void xxxunknown;
-#define XXXNULL NULL
-
 /*
  * Signs a blob of octets in 'octets' with the certificate found using
  * the 'subject_key_ident' using the algorithm indicated by
@@ -69,7 +63,7 @@ typedef void xxxunknown;
  *
  * Returns: The length of the signature actually created, or -1 on error.
  */
-int bgpsec_sign_data_with_ski(byte *octets, int octets_len, xxxunknown *ski,
+int bgpsec_sign_data_with_ski(byte *octets, int octets_len, char *ski,
                              int algorithm, byte *signature,
                              int in_signature_len);
 
@@ -109,8 +103,8 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
                                       byte *signature, int signature_len);
 
 int bgpsec_verify_signature_with_ski(byte *octets, int octets_len,
-                                    xxxunknown *ski, int signature_algorithm,
-                                    byte *signature, int signature_len);
+                                     char *ski, int signature_algorithm,
+                                     byte *signature, int signature_len);
 
 /* --- key manipulation routines (loading, unloading, etc) --- */
 
