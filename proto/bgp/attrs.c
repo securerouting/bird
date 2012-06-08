@@ -242,13 +242,13 @@ bgp_format_aggregator(eattr *a, byte *buf, int buflen UNUSED)
 }
 
 static int
-bgp_check_community(struct bgp_proto *p UNUSED, byte *a UNUSED, int len)
+bgp_check_community(struct bgp_proto *p, byte *buf, int len)
 {
   return ((len % 4) == 0) ? 0 : WITHDRAW;
 }
 
 static int
-bgp_check_cluster_list(struct bgp_proto *p UNUSED, byte *a UNUSED, int len)
+bgp_check_cluster_list(struct bgp_proto *p, byte *buf, int len)
 {
   return ((len % 4) == 0) ? 0 : 5;
 }
@@ -258,6 +258,82 @@ bgp_format_cluster_list(eattr *a, byte *buf, int buflen)
 {
   /* Truncates cluster lists larger than buflen, probably not a problem */
   int_set_format(a->u.ptr, 0, -1, buf, buflen);
+}
+static int
+bgpsec_get_algo_sig_length(byte algo_id)
+{
+  if (BGPSEC_ALGO_ID == algo_id) {
+    return BGPSEC_ALGO_SIG_LENGTH;
+  }
+
+  return 0;
+}
+
+static int
+bgpsec_decode_attr(struct bgp_proto *p, byte **buf, int *len)
+{
+  static struct bgpsec_sig_attr  bsec;
+  /* clear out any previously used static space */
+  bzero(&bsec, sizeof(struct bgpsec_sig_attr));
+  byte *bptr     = *buf;
+  int sigblock   = 0;
+  int sigsegment = 0;
+
+  /* is it long enough to have a minimal valid bgpseg_path_attr */
+  /* 13 = 8 attr + 3 sig-list-blk min + 2 (< sig-seg min), assume >=1 sigseg */
+  if ( *len < 13 ) {
+    return IGNORE;
+  }
+  
+  bsec.expire_time = get_u64(bptr);  bptr+=8;
+  
+  byte algo_id = *bptr++;
+  int algo_sig_length = bgpsec_get_algo_sig_length(algo_id);
+  if (0 >= algo_sig_length) 
+    { 
+      /* return err unknown sig algo; */
+    }
+  bsec.sig_list_blocks[sigblock].sig_list_block_length = get_u16(bptr);  bptr+=2;
+
+  /* XXX check time */
+
+  /* while signature-list blocks */
+  /* 5 = 3 sig-list-blk min + 2 (< sig-seg min), assume >=1 sigseg */
+  while ( bptr < ((*buf)+(*len)-5) ) {
+
+    /* while for signature segments */
+    /* 13 = 8 attr + 3 sig-list-blk min + 2 (< sig-seg min), assume >=1 sigseg */
+    while ( bptr < ( (*buf) + 13 + 
+		     bsec.sig_list_blocks[sigblock].sig_list_block_length ) )
+      {
+	if ( (sigsegment + 1) > BGPSEC_SIGSEGMENT_ARRAY_LENGTH )
+	  {
+	    /* return errr beyond max sigsegments */
+	  }
+	bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].pcount = *bptr++;
+	bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length
+	  = *bptr++;
+	if ( bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length 
+	     > BGPSEC_MAX_KEY_ID_LENGTH )
+	  {
+	    /* return errr beyond max key id length */
+	  }
+	memcpy(bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id,
+	       bptr, 
+	       bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length);
+	bptr += bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length;
+	memcpy(bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].signature,
+	       bptr, algo_sig_length);
+	bptr += algo_sig_length;
+	sigsegment++;
+	bsec.sig_list_blocks[sigblock].number_of_sig_segments = sigsegment;
+      }  /* while for signature segmennts */
+  }   /* while signature-list blocks */
+
+  *len = sizeof(struct bgpsec_sig_attr);
+  *buf = (byte *)&bsec;
+
+  return 0;
 }
 
 static int
@@ -310,6 +386,10 @@ static struct attr_desc bgp_attr_table[] = {
     NULL, NULL },
   { "cluster_list", -1, BAF_OPTIONAL, EAF_TYPE_INT_SET, 0,			/* BA_CLUSTER_LIST */
     bgp_check_cluster_list, bgp_format_cluster_list }, 
+  { "bgpsec_signature", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,                   /* BA_BGPSEC_SIGNATURE */
+    NULL, NULL }, /* checked by bgpsec_decode_attr,
+		   * bgpsec_authenticate, and bgpsec_sign as a special
+		   * case */
   { .name = NULL },								/* BA_DPA */
   { .name = NULL },								/* BA_ADVERTISER */
   { .name = NULL },								/* BA_RCID_PATH */
@@ -458,7 +538,242 @@ bgp_get_attr_len(eattr *a)
   return len;
 }
 
+
 #define ADVANCE(w, r, l) do { r -= l; w += l; } while (0)
+
+
+/* For the originating AS, add a bgpsec signature attribute to the
+ * update */
+/* Otherwise, add an additional signature to the bgpsec signature
+ * attribute */
+unsigned int 
+bgpsec_sign(struct  bgp_conn  *conn,
+	    ea_list           *attr_list,
+	    byte              *w,
+	    int                remains,
+            struct bgp_bucket *buck)
+{
+  /* if this is not a bgpsec connection, done */  
+  if (!conn->peer_bgpsec_support)
+    {
+      return 1;
+    }
+	
+  byte    *start = w;
+
+  static u8 sigbuff[BGPSEC_MAX_ALGO_SIG_LENGTH];
+  /* hashbuff must also be >= 26, but this should be */
+  static u8 hashbuff[BGPSEC_MAX_ALGO_SIG_LENGTH + 4];
+
+  eattr *patha   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_AS_PATH));
+  eattr *bgpsa   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
+
+  /* clean out any previous data */
+  bzero(sigbuff, BGPSEC_MAX_ALGO_SIG_LENGTH);
+  bzero(hashbuff, (BGPSEC_MAX_ALGO_SIG_LENGTH + 4));
+
+  /* XXX if this is a bgpsec connection and no bgpsec attribute, is
+   * this okay?, yes for starting AS */
+  /* if as_path attribute doesn't exist, done */
+  if ( patha == NULL )
+    {
+      DBG("\tbpgsec_sign: No AS_PATH?\n");
+      return 0;
+    }
+
+  u8 *pathptr = (u8 *)&(patha->u.ptr->data);
+  int plen    = pathptr[1];
+
+  if ( pathptr[0] != AS_PATH_SEQUENCE )
+    {
+      /* must be as_sequence, as_set not allowed for bgpsec */
+      return 0;
+    }  
+
+  pathptr += 2;
+
+  u8  pcount;
+  u32 ras             = conn->bgp->remote_as;
+  u8  ski_len         = strlen(conn->bgp->cf->bgpsec_ski);
+  u16 sig_segment_len = 2 + BGPSEC_ALGO_SIG_LENGTH + ski_len;
+  u64 exp_time        = 0;  /* XXX get correct time */
+  u8  algo_id         = BGPSEC_ALGO_ID;
+
+  /* are we the original AS for the NLRI */
+  if ( conn->bgp->local_as == get_u32(pathptr + ((plen-1)*4)) &&
+       conn->bgp->local_as == get_u32(pathptr) )
+    {
+      if ( bgpsa != NULL ) 
+	{
+	  DBG("\tbpgsec_sign: bpgsec attr shouldn't exist at first path AS\n");
+	  return 0;
+	}
+
+      pcount       = plen;
+      u32 las      = conn->bgp->local_as;
+
+      struct bgp_prefix *px = 
+	SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
+      if ( px == NULL )
+	{
+	  /* XXX bad prefix? */
+	  DBG("\tbpgsec_sign: bad prefix found\n");
+	  return 0;
+	}	  
+      u8       pxlen = px->n.pxlen;
+      int   px_bytes = (pxlen+7) / 8;
+      ip_addr prefix = px->n.prefix;
+      ipa_hton(prefix);
+      DBG("\tbpgsec_sign: using NLRI %I/%d\n", px->n.prefix, pxlen);
+
+      /* create data to sign */
+      memcpy(hashbuff,     &exp_time, 8); /* XXX fix */
+      memcpy((hashbuff+8),  &ras, 4);
+      memcpy((hashbuff+12), &las, 4);
+      memcpy((hashbuff+16), &algo_id, 1);
+      memcpy((hashbuff+17), &pxlen, 1);
+      memcpy((hashbuff+18), &prefix, px_bytes );
+      /* sign */
+      int siglength = BGPSEC_ALGO_SIG_LENGTH;
+      /* XXX length of ski probably needed in call
+	bgpsec_sign_data_with_fp(hashbuff, 18+px_bytes, 
+				 conn->bgp->cf->bgpsec_ski,
+				 algo_id, 
+				 sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+      */
+      if ( 1 >= siglength )
+	{
+	  DBG("\tbpgsec_sign: signing failed\n");
+	  return 0;
+	}    
+
+      /* just single sig block XXX */
+      /* is there enough room for adding  a new signature */
+      /* 15 = 4 attr header + 11 list block size without sig segments */
+      if ( remains < (sig_segment_len + 15) )
+	{
+	  DBG("\tbpgsec_sign: not enough room for bpgsec attr: %d\n",
+	      (sig_segment_len + 15) );
+	  return 0;
+	}
+
+      /* add new bgpsec sig attr */
+      /* 11 list block size without sig segments */
+      int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
+				   (sig_segment_len + 11) );
+      ADVANCE(w, remains, rv);
+      put_u64(w, exp_time);
+      ADVANCE(w, remains, 8);
+      memcpy(w, &algo_id, 1);
+      ADVANCE(w, remains, 1);
+      put_u16(w, sig_segment_len);
+      ADVANCE(w, remains, 2);
+      memcpy(w, &pcount, 1);
+      ADVANCE(w, remains, 1);
+      memcpy(w, &ski_len, 1);
+      ADVANCE(w, remains, 1);
+      memcpy(w, conn->bgp->cf->bgpsec_ski, ski_len);
+      ADVANCE(w, remains, ski_len);
+      memcpy(w, sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+      ADVANCE(w, remains, BGPSEC_ALGO_SIG_LENGTH);
+    }
+  /* else we are not the orignial AS, add signature to list */
+  else 
+    {
+      if ( bgpsa == NULL ) 
+	{
+	  DBG("\tbpgsec_sign: error: bpgsec attr does not exist\n");
+	  return 0;
+	}
+      /* figure out pcount */
+      u8 pcount = 0;
+      while ( conn->bgp->local_as == get_u32(pathptr) )
+	{
+	  pcount++;
+	  pathptr += 4;
+	}
+
+      /* XXX need to handle 2 signature list blocks */
+      struct bgpsec_sig_attr *sigattr =
+	(struct bgpsec_sig_attr *)&(bgpsa->u.ptr->data);
+      struct sig_list_block   *sblock =
+	(struct sig_list_block *)&(sigattr->sig_list_blocks[0]);
+  
+      u16 new_sig_block_length = sblock->sig_list_block_length +
+	sig_segment_len;
+
+      /* just single sig block XXX */
+      /* is there enough room for adding  a new signature */
+      /* 15 = 4 attr header + 11 list block size without sig segments */
+      if ( remains < (15 + new_sig_block_length) )
+	{
+	  DBG("\tbpgsec_sign: not enough room for bpgsec attr+: %d\n",
+	      (15 + new_sig_block_length) );
+	  return 0;
+	}
+
+      /* create buffer to sign */
+      memcpy(hashbuff, sblock->sig_segments[0].signature,
+	     BGPSEC_ALGO_SIG_LENGTH);
+      memcpy((hashbuff+BGPSEC_ALGO_SIG_LENGTH), &ras, 4);
+      
+      /* sign */
+      int siglength = BGPSEC_ALGO_SIG_LENGTH;
+      /* XXX length of ski probably needed in call
+	bgpsec_sign_data_with_fp(hashbuff, BGPSEC_ALGO_SIG_LENGTH + 4, 
+				 conn->bgp->cf->bgpsec_ski,
+				 algo_id,
+				 sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+      */
+      if ( 1 >= siglength )
+	{
+	  DBG("\tbpgsec_sign: signing failed+\n");
+	  return 0;
+	}    
+
+      /* add bgpsec sig attr */
+      /* 11 list block size without sig segments*/
+      int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
+				   (11 + new_sig_block_length) );
+      ADVANCE(w, remains, rv);
+      put_u64(w, exp_time);
+      ADVANCE(w, remains, 8);
+      memcpy(w, &algo_id, 1);
+      ADVANCE(w, remains, 1);
+      put_u16(w, new_sig_block_length);
+      ADVANCE(w, remains, 2);
+
+      /* add the new sig segment */
+      memcpy(w, &pcount, 1);
+      ADVANCE(w, remains, 1);
+      memcpy(w, &ski_len, 1);
+      ADVANCE(w, remains, 1);
+      memcpy(w, conn->bgp->cf->bgpsec_ski, ski_len);
+      ADVANCE(w, remains, ski_len);
+      memcpy(w, sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+      ADVANCE(w, remains, BGPSEC_ALGO_SIG_LENGTH);
+
+      /* add the old sig segments */
+      int cseg = 0;
+      while ( cseg < sblock->number_of_sig_segments ) {
+      memcpy(w, &sig_segment_len, 2);
+	memcpy(w, &sblock->sig_segments[cseg].pcount, 1);
+	ADVANCE(w, remains, 1);
+	memcpy(w, &ski_len, 1);
+	memcpy(w, &sblock->sig_segments[cseg].subject_key_id_length, 1);
+	ADVANCE(w, remains, 1);
+	memcpy(w, &sblock->sig_segments[cseg].subject_key_id, 
+	       sblock->sig_segments[cseg].subject_key_id_length);
+	ADVANCE(w, remains, sblock->sig_segments[cseg].subject_key_id_length);
+	memcpy(w, &sblock->sig_segments[cseg].signature, BGPSEC_ALGO_SIG_LENGTH);
+	ADVANCE(w, remains, BGPSEC_ALGO_SIG_LENGTH);
+      }	
+
+    }
+
+  return (w - start);
+} /* int bgpsec_sign */
+
 
 /**
  * bgp_encode_attrs - encode BGP attributes
@@ -473,7 +788,8 @@ bgp_get_attr_len(eattr *a)
  * Result: Length of the attribute block generated or -1 if not enough space.
  */
 unsigned int
-bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains)
+bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
+		 struct bgp_bucket *buck)
 {
   unsigned int i, code, type, flags;
   byte *start = w;
@@ -615,6 +931,16 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains)
 	}
       ADVANCE(w, remains, len);
     }
+
+  unsigned int bgpsec_len = bgpsec_sign(p->conn, attrs, w, remains, buck);
+
+  if ( bgpsec_len == 0 )
+    {
+      DBG("bgp_encode_attrs: bgpsec signing failed\n");
+      goto err_no_buffer;
+    }
+  ADVANCE(w, remains, bgpsec_len);
+
   return w - start;
 
  err_no_buffer:
@@ -1611,6 +1937,15 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len, struct lin
 	      /* Special case as it might also trim the attribute */
 	      if (validate_as_path(bgp, z, &l) < 0)
 		{ errcode = 11; goto err; }
+	    }
+	  else if (code == BA_BGPSEC_SIGNATURE)
+	    {
+	      /* Special case, attribute must be parsed and
+	       * cryptographically checked.  
+               * Note: z and l are changed on succes to point to a
+	       * static array of values copied below to ad->data*/
+	      if ( bgpsec_decode_attr(bgp, &z, &l) < 0 )
+		{ errcode = 12; goto err; }
 	    }
 	  type = desc->type;
 	}

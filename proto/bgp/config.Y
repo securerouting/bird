@@ -26,7 +26,7 @@ CF_KEYWORDS(BGP, LOCAL, NEIGHBOR, AS, HOLD, TIME, CONNECT, RETRY,
 	PREFER, OLDER, MISSING, LLADDR, DROP, IGNORE, ROUTE, REFRESH,
 	INTERPRET, COMMUNITIES, BGP_ORIGINATOR_ID, BGP_CLUSTER_LIST, IGP,
 	TABLE, GATEWAY, DIRECT, RECURSIVE, MED, TTL, SECURITY, DETERMINISTIC, 
-    BGPSEC)
+    BGPSEC, BGPSEC_SKI)
 
 CF_GRAMMAR
 
@@ -46,6 +46,7 @@ bgp_proto_start: proto_start BGP {
      BGP_CFG->enable_refresh = 1;
      BGP_CFG->enable_as4 = 1;
      BGP_CFG->enable_bgpsec = 1;
+		 BGP_CFG->bgpsec_ski = NULL;
      BGP_CFG->capabilities = 2;
      BGP_CFG->advertise_ipv4 = 1;
      BGP_CFG->interpret_communities = 1;
@@ -110,6 +111,7 @@ bgp_proto:
  | bgp_proto IGP TABLE rtable ';' { BGP_CFG->igp_table = $4; }
  | bgp_proto TTL SECURITY bool ';' { BGP_CFG->ttl_security = $4; }
  | bgp_proto BGPSEC bool ';' { BGP_CFG->enable_bgpsec = $3; }
+ | bgp_proto BGPSEC_SKI TEXT ';' { BGP_CFG->bgpsec_ski = $3; }
  ;
 
 CF_ADDTO(dynamic_attr, BGP_ORIGIN
