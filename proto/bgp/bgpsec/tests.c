@@ -11,8 +11,9 @@
 int main(int argc, char **argv) {
     byte signature[1024];
     int  signature_len = sizeof(signature);
+    char strBuffer[1024];
     bgpsec_key_data key_data;
-    xxxunknown *fp = 0;
+    char *fp = "fakefingerprint";
     int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
@@ -34,10 +35,9 @@ int main(int argc, char **argv) {
 
         switch (signature_algorithms[algorithm_count]) {
         case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
-            curveId = NID_secp192k1;
-            key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
             /* XXX: need the right group */
-            // key_data.ecdsa_key->group = EC_GROUP_new_by_nid(NID_secp192k1);
+            curveId = BGPSEC_DEFAULT_CURVE;
+            key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
             EC_KEY_generate_key(key_data.ecdsa_key);
             break;
         default:
@@ -65,6 +65,13 @@ int main(int argc, char **argv) {
         ret = bgpsec_save_key("/tmp/testkey-public", &key_data, curveId, 0);
         RESULT(("cert sign: saving pubkey function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
+
+        /* save the key as a fake fingerprint */
+        mkdir(KEY_REPO_PATH, 0777);
+        strBuffer[sizeof(strBuffer)-1] = '\0';
+        snprintf(strBuffer, sizeof(strBuffer)-1, "%s/%s",
+                 KEY_REPO_PATH, fp);
+        ret = bgpsec_save_key(strBuffer, &key_data, curveId, 1);
 
         /* modify the private key so it can't be part of the verification */
         BN_init(&newbignum);
