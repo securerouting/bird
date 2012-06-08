@@ -13,15 +13,33 @@
 #include <stdint.h>
 #include <openssl/x509.h>
 #include <openssl/ecdsa.h>
+#include <openssl/err.h>
 
 #include "nest/route.h"
 
+/* XXX: these need to be configurable in the bird config file instead */
+#define KEY_REPO_PATH "/tmp/bgpsec-keys"
+
+/* XXX: temporary curve to use; needs the real one */
+/* the real one should be NID_secp256r1 (the 'r' is the difference) */
+/* but doesn't exist in openssl at this point? */
+#define BGPSEC_DEFAULT_CURVE NID_secp256k1
+
+/*
+ * structure to store keying data in; we create a generic union until
+ * we know what type of key we actually want to make the routines generic
+ */
 typedef union {
    X509     *x509_public;
    EVP_PKEY *x509_private;
 
    EC_KEY   *ecdsa_key;
 } bgpsec_key_data;
+
+/* Generic error codes */
+#define BGPSEC_SUCCESS 0
+#define BGPSEC_ERROR   1
+
 
 /* These match the defined algorithm bytes from the protocol definition */
 
@@ -93,5 +111,32 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
 int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
                                     xxxunknown *fp, int signature_algorithm,
                                     byte *signature, int signature_len);
+
+/* --- key manipulation routines (loading, unloading, etc) --- */
+
+/*
+ * Saves a ECDSA key to a file name with two suffixes, ".private" and
+ * ".pub".  The curveId should be the eliptic curve specifier to use.
+ * If savePrivateKey is 0, the private key won't be saved.
+ *
+ * Returns:
+ *   Success: BGPSEC_SUCCESS
+ *   Failure: BGPSEC_FAILURE
+ */
+int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
+                    int curveId, int savePrivateKey);
+
+/*
+ * Loads a ECDSA key from a file name with two suffixes, ".private" and
+ * ".pub".  The curveId should be the eliptic curve specifier to use.
+ * If loadPrivateKey is 0, the private key won't be loaded and the key
+ * will only be useful for verifying signatures and not for signing.
+ *
+ * Returns:
+ *   Success: BGPSEC_SUCCESS
+ *   Failure: BGPSEC_FAILURE
+ */
+int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
+                    int curveId, int loadPrivateKey);
 
 #endif 
