@@ -106,6 +106,10 @@ int bgpsec_verify_signature_with_fp(byte *octets, int octets_len,
  * Saves a ECDSA key to a file name with two suffixes, ".private" and
  * ".pub".  The curveId should be the eliptic curve specifier to use.
  * If savePrivateKey is 0, the private key won't be saved.
+ *
+ * Returns:
+ *   Success: BGPSEC_SUCCESS
+ *   Failure: BGPSEC_FAILURE
  */
 int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int savePrivateKey);
@@ -115,6 +119,10 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
  * ".pub".  The curveId should be the eliptic curve specifier to use.
  * If loadPrivateKey is 0, the private key won't be loaded and the key
  * will only be useful for verifying signatures and not for signing.
+ *
+ * Returns:
+ *   Success: BGPSEC_SUCCESS
+ *   Failure: BGPSEC_FAILURE
  */
 int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int loadPrivateKey);
