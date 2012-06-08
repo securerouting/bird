@@ -96,6 +96,10 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SIGNATURE_MISMATCH),
                ret == BGPSEC_SIGNATURE_MISMATCH);
         
+        /* completely get rid of the current key */
+        EC_KEY_free(key_data.ecdsa_key);
+        key_data.ecdsa_key = NULL;
+
         /* now reload the key from the files and use them to verify it */
         ret = bgpsec_load_key("/tmp/testkey", &key_data, curveId, 1);
         RESULT(("cert sign: loading key function returned: %d (should be %d)",
@@ -111,12 +115,16 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SIGNATURE_MATCH),
                ret == BGPSEC_SIGNATURE_MATCH);
 
-        /* now reload the key from the files and use them to verify it */
+        /* completely get rid of the current key */
+        EC_KEY_free(key_data.ecdsa_key);
+        key_data.ecdsa_key = NULL;
+
+        /* now reload just the public part of the key and test just it */
         ret = bgpsec_load_key("/tmp/testkey-public", &key_data, curveId, 0);
         RESULT(("cert sign: loading public key function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
-        /* verify that the signature matches again with the loaded key */
+        /* verify that the signature matches again with the public key */
         ret = bgpsec_verify_signature_with_cert(data_to_sign,
                                                 sizeof(data_to_sign),
                                                 key_data,
