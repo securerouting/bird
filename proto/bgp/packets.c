@@ -21,7 +21,7 @@
 #include "nest/cli.h"
 
 #include "bgp.h"
-#include "bpgsec/validate.h"
+#include "validate.h"
 
 static struct rate_limit rl_rcv_update,  rl_snd_update;
 
