@@ -38,7 +38,7 @@ typedef union {
 
 /* Generic error codes */
 #define BGPSEC_SUCCESS 0
-#define BGPSEC_ERROR   1
+#define BGPSEC_FAILURE 1
 
 
 /* These match the defined algorithm bytes from the protocol definition */
@@ -63,9 +63,15 @@ typedef union {
  *
  * Returns: The length of the signature actually created, or -1 on error.
  */
-int bgpsec_sign_data_with_ski(byte *octets, int octets_len, char *ski,
-                             int algorithm, byte *signature,
-                             int in_signature_len);
+int bgpsec_sign_data_with_ascii_ski(byte *octets, int octets_len,
+                                    char *ski, size_t ski_len,
+                                    int algorithm, byte *signature,
+                                    int in_signature_len);
+
+int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
+                                  char *ski, size_t ski_len,
+                                  int algorithm, byte *signature,
+                                  int in_signature_len);
 
 /*
  * Signs a blob of octets in 'octets' with the certificate 'cert' using
@@ -102,9 +108,19 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
                                       int signature_algorithm,
                                       byte *signature, int signature_len);
 
-int bgpsec_verify_signature_with_ski(byte *octets, int octets_len,
-                                     char *ski, int signature_algorithm,
-                                     byte *signature, int signature_len);
+/* verifies a signature when passed an ascii SKI */
+int bgpsec_verify_signature_with_ascii_ski(byte *octets, int octets_len,
+                                           char *ski, size_t ski_len,
+                                           int signature_algorithm,
+                                           byte *signature, int signature_len);
+
+/* verifies a signature when passed a binary SKI
+   (internally, this is a wrapper around the above function and merely
+   prints the binary to an hex-encoded ascii first) */
+int bgpsec_verify_signature_with_bin_ski(byte *octets, int octets_len,
+                                         char *ski, size_t ski_len,
+                                         int signature_algorithm,
+                                         byte *signature, int signature_len);
 
 /* --- key manipulation routines (loading, unloading, etc) --- */
 

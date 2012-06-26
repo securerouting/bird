@@ -15,17 +15,35 @@
 
 #include "validate.h"
 
-#define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_SUCCESS); } while(0);
+#define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
 
 
-int bgpsec_sign_data_with_ski(byte *octets, int octets_len, char *ski,
-                             int algorithm, byte *signature,
-                             int in_signature_len) {
-
+int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
+                                  char *ski, size_t ski_len,
+                                  int algorithm, byte *signature,
+                                  int in_signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_ski(ski, &key, BGPSEC_DEFAULT_CURVE, 1)) {
+        bgpsec_load_key_from_bin_ski(ski, ski_len,
+                                     &key, BGPSEC_DEFAULT_CURVE, 1)) {
+        ERROR("");
+    }
+
+
+    return bgpsec_sign_data_with_cert(octets, octets_len, key,
+                                      algorithm, signature, in_signature_len);
+}
+
+int bgpsec_sign_data_with_ascii_ski(byte *octets, int octets_len,
+                                    char *ski, size_t ski_len,
+                                    int algorithm, byte *signature,
+                                    int in_signature_len) {
+    bgpsec_key_data key;
+
+    if (BGPSEC_SUCCESS !=
+        bgpsec_load_key_from_ascii_ski(ski, ski_len,
+                                       &key, BGPSEC_DEFAULT_CURVE, 1)) {
         ERROR("");
     }
 
@@ -115,13 +133,33 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
     return BGPSEC_SIGNATURE_MISMATCH;
 }
     
-int bgpsec_verify_signature_with_ski(byte *octets, int octets_len,
-                                    char *ski, int signature_algorithm,
-                                    byte *signature, int signature_len) {
+int bgpsec_verify_signature_with_ascii_ski(byte *octets, int octets_len,
+                                           char *ski, size_t ski_len,
+                                           int signature_algorithm,
+                                           byte *signature, int signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_ski(ski, &key, BGPSEC_DEFAULT_CURVE, 0)) {
+        bgpsec_load_key_from_ascii_ski(ski, ski_len,
+                                       &key, BGPSEC_DEFAULT_CURVE, 0)) {
+        ERROR("");
+    }
+
+
+    return bgpsec_verify_signature_with_cert(octets, octets_len, key,
+                                             signature_algorithm,
+                                             signature, signature_len);
+}
+
+int bgpsec_verify_signature_with_bin_ski(byte *octets, int octets_len,
+                                           char *ski, size_t ski_len,
+                                           int signature_algorithm,
+                                           byte *signature, int signature_len) {
+    bgpsec_key_data key;
+
+    if (BGPSEC_SUCCESS !=
+        bgpsec_load_key_from_bin_ski(ski, ski_len,
+                                     &key, BGPSEC_DEFAULT_CURVE, 0)) {
         ERROR("");
     }
 
@@ -254,8 +292,9 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     return BGPSEC_SUCCESS;
 }
 
-int bgpsec_load_key_from_ski(const char *ski, bgpsec_key_data *key_data,
-                            int curveId, int loadPrivateKey) {
+int bgpsec_load_key_from_ascii_ski(const char *ski, size_t ski_len,
+                                   bgpsec_key_data *key_data,
+                                   int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
     BIGNUM *privateData = NULL;
@@ -265,14 +304,57 @@ int bgpsec_load_key_from_ski(const char *ski, bgpsec_key_data *key_data,
     int ret;
     EC_GROUP *ecGroup;
 
-    /* XXX: is the incoming ski binary or pre-printed hex?  This assumes hex */
-    
-    /* XXX: build a hash tree instead? */
+    /* just in case buffers */
+    char ascii_buf[MAXPATHLEN];
+
+    /* verify that the incoming data is appropriate */
+
+    if (ski[ski_len]-1 != 0) {
+        /* the ski isn't null terminated, so we'll need to replace it
+           with a string that is */
+        if (ski_len > sizeof(ascii_buf)) {
+            ERROR("invalid incoming SKI length");
+        }
+        memcpy(ascii_buf, ski, ski_len);
+        ascii_buf[ski_len] = '\0';
+        ski = ascii_buf;
+    }
+
+    /* XXX: build a hash tree directory structure instead? */
     filenamebuf[sizeof(filenamebuf)-1] = '\0';
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%s",
              KEY_REPO_PATH, ski);
 
     return bgpsec_load_key(filenamebuf, key_data, curveId, loadPrivateKey);
+}
+
+int bgpsec_load_key_from_bin_ski(const char *ski, size_t ski_len,
+                                 bgpsec_key_data *key_data,
+                                 int curveId, int loadPrivateKey) {
+    char filenamebuf[MAXPATHLEN];
+    char octetBuffer[4096];
+    BIGNUM *privateData = NULL;
+    EC_POINT *publicKey;
+    FILE *loadFrom;
+    size_t len;
+    int ret;
+    EC_GROUP *ecGroup;
+
+    char ascii_ski_buf[ski_len * 2 + 1], *cp;
+    int i;
+    
+    cp = ascii_ski_buf;
+    for(i = 0; i < ski_len; i++) {
+        sprintf(cp, "%02x", ski[i]);
+        cp += 2;
+    }
+
+    /* null terminate it */
+    ascii_ski_buf[sizeof(ascii_ski_buf)-1] = '\0';
+
+    return
+        bgpsec_load_key_from_ascii_ski(ascii_ski_buf, sizeof(ascii_ski_buf),
+                                       key_data, curveId, loadPrivateKey);
 }
 
 int bgpsec_get_filesize(const char *filename) {
