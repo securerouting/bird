@@ -1005,16 +1005,13 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
   int prefix_bytes = (pxlen + 7) / 8;
   memcpy((hashbuff + 19), &prefix, prefix_bytes);
 
-  if ( 1 != 1 )
-	/* XXX
-  if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_fp
-       (hashbuff, (19 + NLRI_Length),
-	&sblock->sig_segments[cseg].subject_key_id, 
-	sblock->sig_segments[cseg].subject_key_id_length, 
+  if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_ski
+       (hashbuff, (19 + prefix_bytes),
+	sblock->sig_segments[cseg].subject_key_id, 
+	/*	sblock->sig_segments[cseg].subject_key_id_length,  */
 	sblock->algo_suite_id,
-	&sblock->sig_segments[cseg].signature,
+	sblock->sig_segments[cseg].signature,
 	BGPSEC_ALGO_SIG_LENGTH) )
-	*/
     {
       /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
 	 BGPSEC_SIGNATURE_MISMATCH */
