@@ -21,7 +21,7 @@
 #include "nest/cli.h"
 
 #include "bgp.h"
-#include "validate.h"
+#include "bgpsec/validate.h"
 
 static struct rate_limit rl_rcv_update,  rl_snd_update;
 
@@ -397,7 +397,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048, buck);
 	  if (size < 0)
 	    {
-1	      log(L_ERR "%s: Attribute list too long, skipping corresponding routes", p->p.name);
+	      log(L_ERR "%s: Attribute list too long, skipping corresponding routes", p->p.name);
 	      bgp_flush_prefixes(p, buck);
 	      rem_node(&buck->send_node);
 	      bgp_free_bucket(p, buck);
@@ -970,10 +970,10 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
 	     BGPSEC_ALGO_SIG_LENGTH);
       memcpy((hashbuff + BGPSEC_ALGO_SIG_LENGTH), pathptr, 4);
       
-      if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_ski
+      if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_bin_ski
 	   (hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4),
 	    sblock->sig_segments[cseg].subject_key_id, 
-    /*	    sblock->sig_segments[cseg].subject_key_id_length,  */
+	    sblock->sig_segments[cseg].subject_key_id_length,
 	    sblock->algo_suite_id,
 	    sblock->sig_segments[cseg].signature,
 	    BGPSEC_ALGO_SIG_LENGTH) )
@@ -1005,10 +1005,10 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
   int prefix_bytes = (pxlen + 7) / 8;
   memcpy((hashbuff + 19), &prefix, prefix_bytes);
 
-  if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_ski
+  if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_bin_ski
        (hashbuff, (19 + prefix_bytes),
 	sblock->sig_segments[cseg].subject_key_id, 
-	/*	sblock->sig_segments[cseg].subject_key_id_length,  */
+	sblock->sig_segments[cseg].subject_key_id_length,
 	sblock->algo_suite_id,
 	sblock->sig_segments[cseg].signature,
 	BGPSEC_ALGO_SIG_LENGTH) )

@@ -635,11 +635,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
       memcpy((hashbuff+18), &prefix, px_bytes );
       /* sign */
       int siglength =
-	bgpsec_sign_data_with_ski(hashbuff, (18 + px_bytes), 
-				  conn->bgp->cf->bgpsec_ski,
-				  /* ski_length? */
-				  algo_id, 
-				  sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+	bgpsec_sign_data_with_ascii_ski(hashbuff, (18 + px_bytes), 
+					conn->bgp->cf->bgpsec_ski,
+					strlen(conn->bgp->cf->bgpsec_ski),
+					algo_id, 
+					sigbuff, BGPSEC_ALGO_SIG_LENGTH);
 
       if ( 1 >= siglength )
 	{
@@ -719,11 +719,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
       
       /* sign */
       int siglength =
-	bgpsec_sign_data_with_ski(hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4), 
-				  conn->bgp->cf->bgpsec_ski,
-				  /* ski_length? */
-				  algo_id,
-				  sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+	bgpsec_sign_data_with_ascii_ski(hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4), 
+					conn->bgp->cf->bgpsec_ski,
+					strlen(conn->bgp->cf->bgpsec_ski),
+					algo_id,
+					sigbuff, BGPSEC_ALGO_SIG_LENGTH);
       if ( 1 >= siglength )
 	{
 	  DBG("\tbpgsec_sign:no: signing failed+\n");
