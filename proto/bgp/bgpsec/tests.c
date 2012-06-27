@@ -144,9 +144,11 @@ int main(int argc, char **argv) {
         /* generate a signature using a fingerprint */
         /* XXX: set test directory to search for matching ski->certs */
         signature_len =
-            bgpsec_sign_data_with_ski(data_to_sign, sizeof(data_to_sign), ski,
-                                     signature_algorithms[algorithm_count],
-                                     signature, sizeof(signature));
+            bgpsec_sign_data_with_ascii_ski(data_to_sign,
+                                            sizeof(data_to_sign),
+                                            ski, strlen(ski)+1,
+                                            signature_algorithms[algorithm_count],
+                                            signature, sizeof(signature));
 
         RESULT(("ski sign:   algorithm %d, signature length (%d) is not negative",
                 signature_algorithms[algorithm_count], signature_len),
@@ -155,11 +157,11 @@ int main(int argc, char **argv) {
         
 
         /* verify that the signature matches */
-        ret = bgpsec_verify_signature_with_ski(data_to_sign,
-                                              sizeof(data_to_sign),
-                                              ski,
-                                              signature_algorithms[algorithm_count],
-                                              signature, sizeof(signature));
+        ret = bgpsec_verify_signature_with_ascii_ski(data_to_sign,
+                                                     sizeof(data_to_sign),
+                                                     ski, strlen(ski)+1,
+                                                     signature_algorithms[algorithm_count],
+                                                     signature, sizeof(signature));
         RESULT(("ski sign:   verify signature result: %d (should be %d)",
                 ret, BGPSEC_SIGNATURE_MATCH),
                ret == BGPSEC_SIGNATURE_MATCH);
