@@ -23,10 +23,28 @@ if (! -d $keyDir) {
 }
 
 # generate the EC parameters, setting the keytype up
-system("openssl ecparam -name $keyType -out $ecParamFile");
+system("openssl ecparam -name $keyType -genkey -out $privateKeyFile");
 
 # generate the certificate signing request
-system("openssl req -config $cnfFile -keyout $privateKeyFile -newkey ec:$ecParamFile -out $csrFile");
+system("openssl req -new -batch -config $cnfFile -key $privateKeyFile -out $csrFile");
+
+# read in the SKI so we can set the distingiuished name using it
+my $ski;
+open(I, "openssl req -in $csrFile -text|");
+while(<I>) {
+    if (/X509v3 Subject Key Identifier/) {
+	$ski = <I>;
+	$ski =~ s/\s//g;
+	$ski =~s/://g;
+	last;
+    }
+}
+close(I);
+print "ski: $ski\n";
+
+# regenerate the certificate signing request with the correct subject
+system("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKeyFile -out $csrFile");
+
 
 # self-sign the certificate
 # XXX: or CA-sign it
