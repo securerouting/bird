@@ -32,4 +32,4 @@ system("openssl req -config $cnfFile -keyout $privateKeyFile -newkey ec:$ecParam
 # XXX: or CA-sign it
 my $serial = `date +%Y%m%d0001`;
 chomp($serial);
-system("openssl x509 -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
+system("openssl x509 -sha256 -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
