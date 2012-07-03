@@ -2,36 +2,34 @@
 
 use strict;
 
+my $keyDir           = "keys";
 my $keyType          = "secp256k1";
 my $opensslPath      = "/usr/local/openssl-ecdsa/bin";
-my $removePassphrase = 1;
+my $cnfFile          = "router-key.cnf";
 
 # files to use:
-my $ecParamFile      = "router-key-params.$$.pem";
-my $privateKeyFile   = "router-key.$$.private";
-my $csrFile          = "router-key.$$.csr";
-my $publicCertFile   = "router-key.$$.cert";
+my $ecParamFile      = "$keyDir/router-key-params.$$.pem";
+my $privateKeyFile   = "$keyDir/router-key.$$.private";
+my $csrFile          = "$keyDir/router-key.$$.csr";
+my $publicCertFile   = "$keyDir/router-key.$$.cert";
 my $validityPeriod   = "365"; #days
 
 if ($opensslPath) {
     $ENV{'PATH'} = $opensslPath . ":" . $ENV{'PATH'};
 }
 
+if (! -d $keyDir) {
+    mkdir($keyDir) || die "failed to make the directory: $keyDir";
+}
+
 # generate the EC parameters, setting the keytype up
 system("openssl ecparam -name $keyType -out $ecParamFile");
 
 # generate the certificate signing request
-system("openssl req -keyout $privateKeyFile -newkey ec:$ecParamFile -out $csrFile");
-
-# optionally remove the enforced passphrase from above
-if ($removePassphrase) {
-    print "removing the enforced passphrase on the private key.  Please retype it\n";
-    system("openssl ec -in $privateKeyFile -out tmp.$$.private");
-    rename("tmp.$$.private", "$privateKeyFile");
-}
+system("openssl req -config $cnfFile -keyout $privateKeyFile -newkey ec:$ecParamFile -out $csrFile");
 
 # self-sign the certificate
 # XXX: or CA-sign it
 my $serial = `date +%Y%m%d0001`;
 chomp($serial);
-system("openssl x509 -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
+system("openssl x509 -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
