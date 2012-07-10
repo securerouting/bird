@@ -13,8 +13,33 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <openssl/bn.h>
 #include "validate.h"
 
+/* XXX: this is copied from openssl's (1.0.1c) ec_lcl.h which could change
+        But they don't provide an API to get to the private key section
+        choices: keep going as is, or try to switch to X509 cert signing
+        functions
+*/
+struct ec_key_st {
+        int version;
+
+        EC_GROUP *group;
+
+        EC_POINT *pub_key;
+        BIGNUM   *priv_key;
+
+        unsigned int enc_flag;
+        point_conversion_form_t conv_form;
+
+        int     references;
+        int     flags;
+
+   void *method_data; /* was EC_EXTRA_DATA */
+} /* EC_KEY */;
+
+
+/* XXX: use bird's logging mechanisms */
 #define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
 
 
@@ -227,47 +252,63 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
     BIGNUM *privateData = NULL;
-    EC_POINT *publicKey;
-    FILE *loadFrom;
+    EC_POINT *publicKey = NULL;
+    FILE *loadFrom = NULL;
     size_t len;
     int ret;
     EC_GROUP *ecGroup;
+    unsigned char *cbuf = NULL;
     
+    BIO            *input_bio = NULL;
+    EVP_PKEY       *private_key = NULL;
+    X509           *x509_cert = NULL;
 
     filenamebuf[sizeof(filenamebuf)-1] = '\0';
 
     /* create the basic key structure */
     key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
 
-    if (loadPrivateKey) {
-        /* load the private key */
-        snprintf(filenamebuf, sizeof(filenamebuf)-1,
-                 "%s.private", filePrefix);
-        loadFrom = fopen(filenamebuf, "r");
-        if (loadFrom == NULL)
-            ERROR("failed to open the private key file");
-
-        len = fread(octetBuffer, sizeof(octetBuffer), 1, loadFrom);
-        if (len < 0)
-            ERROR("failed to read the private key file");
-
-        fclose(loadFrom);
-
-        BN_hex2bn(&privateData, octetBuffer);
-        EC_KEY_set_private_key(key_data->ecdsa_key, privateData);
-    }
-
     /* load the public key */
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", filePrefix);
-
-    /* find the size of the file */
-    
-    loadFrom = fopen(filenamebuf, "r"); 
-    len = bgpsec_get_filesize(filenamebuf);
-    if (fread(octetBuffer, len, 1, loadFrom) != 1) {
-        ERROR("failed to read the public key file");
+    input_bio = BIO_new(BIO_s_file());
+    if (NULL == input_bio) {
+        ERROR("error creating BIO");
     }
-    fclose(loadFrom);
+
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.pub", filePrefix);
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "/tmp/test.pub");
+
+    if (BIO_read_filename(input_bio, filenamebuf) <=0) {
+        BIO_vfree(input_bio);
+        ERROR("error reading public certificate into BIO");
+    }
+
+#define BGPSEC_USE_PEM_CERTS 1
+#ifdef BGPSEC_USE_PEM_CERTS
+    x509_cert = PEM_read_bio_X509_AUX(input_bio, NULL, NULL, NULL);
+    if (NULL == x509_cert) {
+        ERROR("failed to load the x509 cert");
+    }
+#else /* following is !BGPSEC_USE_PEM_CERTS, which is DER */
+    x509_cert = d2i_X509_bio(input_bio, NULL); /* DER/ASN1 */
+    if (NULL == ocert) {
+        ERROR("failed to load the x509 cert");
+    }
+    (void)BIO_reset(certbio);
+#endif /* BGPSEC_USE_PEM_CERTS */
+
+
+
+
+    /* XXX: key is in x509_cert->cert_info->key */
+    /* type:
+               X509_PUBKEY *key;
+               ->
+                         ASN1_BIT_STRING *public_key;
+                         EVP_PKEY *pkey;
+    */
+
+
+    /* ...cert_info->key->pkey->ec */
 
     /* XXX: leaks the curve object */
     ecGroup = EC_GROUP_new_by_curve_name(curveId);
@@ -278,6 +319,14 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     if (!publicKey) {
         ERROR("failed to create a new EC_POINT");
     }
+
+    fprintf(stderr, "len: %d\n", 
+           ASN1_STRING_length(x509_cert->cert_info->key->public_key));
+
+    memcpy(octetBuffer,
+           ASN1_STRING_data(x509_cert->cert_info->key->public_key),
+           len = ASN1_STRING_length(x509_cert->cert_info->key->public_key));
+
     EC_POINT_oct2point(ecGroup, publicKey, octetBuffer, len, NULL);
 
     ret = EC_KEY_set_public_key(key_data->ecdsa_key, publicKey);
@@ -286,7 +335,41 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     }
 
     if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
-        ERROR("newly loaded EC key not ok");
+        ERROR("newly loaded public EC key not ok");
+    }
+
+    if (loadPrivateKey) {
+        /* load the private key */
+        snprintf(filenamebuf, sizeof(filenamebuf)-1,
+                 "%s.private", filePrefix);
+
+        snprintf(filenamebuf, sizeof(filenamebuf)-1,
+                 "/tmp/test.private");
+
+
+        input_bio = BIO_new(BIO_s_file());
+        if (NULL == input_bio) {
+            ERROR("failed to load a private key\n");
+        }
+
+        if (BIO_read_filename(input_bio, filenamebuf) <=0) {
+            BIO_vfree(input_bio);
+            ERROR("error reading a private key into a BIO");
+        }
+
+        private_key = PEM_read_bio_PrivateKey(input_bio, NULL, NULL, NULL);
+        if (NULL == private_key)
+            ERROR("failed to load the private key from the bio");
+
+        BIO_vfree(input_bio);
+        
+        if (!EC_KEY_set_private_key(key_data->ecdsa_key,
+                                    private_key->pkey.ec->priv_key))
+            ERROR("failed to set the private key into the EC key object");
+
+        if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
+            ERROR("newly loaded public/private EC key not ok");
+        }
     }
 
     return BGPSEC_SUCCESS;

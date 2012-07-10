@@ -12,6 +12,7 @@
 
 #include <stdint.h>
 #include <openssl/x509.h>
+#include <openssl/pem.h>
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
 
@@ -34,6 +35,7 @@ typedef union {
    EVP_PKEY *x509_private;
 
    EC_KEY   *ecdsa_key;
+   X509     *the_key;
 } bgpsec_key_data;
 
 /* Generic error codes */
