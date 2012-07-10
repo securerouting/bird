@@ -265,6 +265,14 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
 
     filenamebuf[sizeof(filenamebuf)-1] = '\0';
 
+    switch (curveId) {
+    case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
+        curveId = BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256;
+        break;
+    default:
+        ERROR("unkown curve ID");
+    }
+
     /* create the basic key structure */
     key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
 
@@ -275,7 +283,6 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     }
 
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.pub", filePrefix);
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "/tmp/test.pub");
 
     if (BIO_read_filename(input_bio, filenamebuf) <=0) {
         BIO_vfree(input_bio);
@@ -342,10 +349,6 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
         /* load the private key */
         snprintf(filenamebuf, sizeof(filenamebuf)-1,
                  "%s.private", filePrefix);
-
-        snprintf(filenamebuf, sizeof(filenamebuf)-1,
-                 "/tmp/test.private");
-
 
         input_bio = BIO_new(BIO_s_file());
         if (NULL == input_bio) {
