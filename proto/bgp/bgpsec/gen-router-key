@@ -38,6 +38,7 @@ LocalGetOptions(\%opts,
 		
 		["GUI:separator",   "Output Options"],
 		["p|print-ski",     "Print the SKI from the created key"], 
+		["v|verbose",       "Be verbose about what is being done"], 
 		);
 
 
@@ -76,10 +77,10 @@ if (! -d $keyDir) {
 }
 
 # generate the EC parameters, setting the keytype up
-system("openssl ecparam -name $keyType -genkey -out $privateKeyFile");
+System("openssl ecparam -name $keyType -genkey -out $privateKeyFile");
 
 # generate the certificate signing request
-system("openssl req -new -batch -config $cnfFile -key $privateKeyFile -out $csrFile");
+System("openssl req -new -batch -config $cnfFile -key $privateKeyFile -out $csrFile");
 
 # read in the SKI so we can set the distingiuished name using it
 my $ski;
@@ -96,12 +97,12 @@ close(I);
 print "$ski\n" if ($opts{'p'});
 
 # regenerate the certificate signing request with the correct subject
-system("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKeyFile -out $csrFile");
+System("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKeyFile -out $csrFile");
 
 
 # self-sign the certificate
 # XXX: or CA-sign it
-system("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod > /dev/null 2>&1");
+System("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod > /dev/null 2>&1");
 
 # move the files to their final destinations
 if ($finalPrivateKeyFile  =~ /%s/) {
@@ -112,6 +113,19 @@ if ($finalCsrFile  =~ /%s/) {
 }
 if ($finalPublicCertFile  =~ /%s/) {
     rename($publicCertFile, sprintf($finalPublicCertFile, $ski));
+}
+
+######################################################################
+# support functions
+#
+
+sub Verbose {
+    print STDERR @_ if ($opts{'v'});
+}
+
+sub System {
+    Verbose("Running: ", @_, "\n");
+    system(@_);
 }
 
 ######################################################################
