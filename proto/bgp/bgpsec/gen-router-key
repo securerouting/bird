@@ -5,12 +5,14 @@ use strict;
 my %opts =
     ('d' => 	  "keys",
      't' => 	  "secp256k1",
+     's' =>       "sha256",
      'openssl' => "/usr/local/openssl-ecdsa/bin",
      'c' =>       "router-key.cnf",
 
      'P' =>       "KEYDIR/%s.pub",
      'C' =>       "KEYDIR/%s.csr",
      'X' =>       "KEYDIR/%s.private",
+     'D' =>       365,
     );
 
 LocalGetOptions(\%opts,
@@ -19,12 +21,14 @@ LocalGetOptions(\%opts,
 		["GUI:separator=s", "Certificate Options"],
 		["d|keydir=s",      "Use this directory to store keys in"],
 		["t|keytype=s",     "Use this keytype (eg: secp256k1)"],
+		["s|sig-alg=s",     "Signature algoritm to use (sha256)"],
 		["c|conf-file=s",   "Path to the configuration file"],
 
 		["GUI:separator=s", "Output Files (%s will be replaced with the SKI)"],
 		["P|public-key=s",  "Public certificate file"],
 		["C|csr=s",         "Certificate Signing Request file"],
 		["X|private-key=s", "Private certificate file"],
+		["D|validity=i",    "The number of days the certificate should be valid for"],
 
 		["GUI:separator", "Basic Configuration"],
 		["openssl|openssl-path=s", "Path to OpenSSL install directory with EC support"],
@@ -32,18 +36,21 @@ LocalGetOptions(\%opts,
 		);
 
 
-my $keyDir           = $opts{'d'};
-my $keyType          = $opts{'t'};
-my $opensslPath      = $opts{'openssl'};
-my $cnfFile          = $opts{'c'};
+my $keyDir           	 = $opts{'d'};
+my $keyType          	 = $opts{'t'};
+my $opensslPath      	 = $opts{'openssl'};
+my $cnfFile          	 = $opts{'c'};
 
 # default files to use:
 my $privateKeyFile   	 = $opts{'X'};
 my $csrFile          	 = $opts{'C'};
 my $publicCertFile   	 = $opts{'P'};
+# allow the KEYDIR to be set later
 $privateKeyFile      	 =~ s/^KEYDIR/$keyDir/;
 $csrFile             	 =~ s/^KEYDIR/$keyDir/;
 $publicCertFile      	 =~ s/^KEYDIR/$keyDir/;
+# save the final names with %s's in them for the SKI, and use temp
+# files at the moment since we don't know the SKI.
 my $finalPrivateKeyFile  = $privateKeyFile;
 my $finalCsrFile         = $csrFile;
 my $finalPublicCertFile  = $publicCertFile;
@@ -51,7 +58,8 @@ $privateKeyFile      	 =~ s/%s/XXTEMP-$$/;
 $csrFile             	 =~ s/%s/XXTEMP-$$/;
 $publicCertFile      	 =~ s/%s/XXTEMP-$$/;
 
-my $validityPeriod   = "365"; #days
+my $validityPeriod       = $opts{'D'};
+my $signatureAlgorithm   = $opts{'s'};
 
 if ($opensslPath) {
     $ENV{'PATH'} = $opensslPath . ":" . $ENV{'PATH'};
@@ -89,7 +97,7 @@ system("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKey
 # XXX: or CA-sign it
 my $serial = `date +%Y%m%d0001`;
 chomp($serial);
-system("openssl x509 -sha256 -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
+system("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
 
 # move the files to their final destinations
 if ($finalPrivateKeyFile  =~ /%s/) {
