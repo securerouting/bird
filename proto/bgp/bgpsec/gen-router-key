@@ -13,7 +13,9 @@ my %opts =
      'C' =>       "KEYDIR/%s.csr",
      'X' =>       "KEYDIR/%s.private",
      'D' =>       365,
+     'S' =>       `date +%Y%m%d0001`,
     );
+chomp($opts{'S'});
 
 LocalGetOptions(\%opts,
 		['GUI:nootherargs', 1],
@@ -29,10 +31,13 @@ LocalGetOptions(\%opts,
 		["C|csr=s",         "Certificate Signing Request file"],
 		["X|private-key=s", "Private certificate file"],
 		["D|validity=i",    "The number of days the certificate should be valid for"],
+		["S|serial=i",      "certiifcate serial number to use"], 
 
-		["GUI:separator", "Basic Configuration"],
+		["GUI:separator",   "Basic Configuration"],
 		["openssl|openssl-path=s", "Path to OpenSSL install directory with EC support"],
 		
+		["GUI:separator",   "Output Options"],
+		["p|print-ski",     "Print the SKI from the created key"], 
 		);
 
 
@@ -60,6 +65,7 @@ $publicCertFile      	 =~ s/%s/XXTEMP-$$/;
 
 my $validityPeriod       = $opts{'D'};
 my $signatureAlgorithm   = $opts{'s'};
+my $serial               = $opts{'S'};
 
 if ($opensslPath) {
     $ENV{'PATH'} = $opensslPath . ":" . $ENV{'PATH'};
@@ -87,7 +93,7 @@ while(<I>) {
     }
 }
 close(I);
-print "ski: $ski\n";
+print "$ski\n" if ($opts{'p'});
 
 # regenerate the certificate signing request with the correct subject
 system("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKeyFile -out $csrFile");
@@ -95,9 +101,7 @@ system("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKey
 
 # self-sign the certificate
 # XXX: or CA-sign it
-my $serial = `date +%Y%m%d0001`;
-chomp($serial);
-system("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
+system("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod > /dev/null 2>&1");
 
 # move the files to their final destinations
 if ($finalPrivateKeyFile  =~ /%s/) {
