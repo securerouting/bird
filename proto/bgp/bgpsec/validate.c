@@ -327,9 +327,6 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
         ERROR("failed to create a new EC_POINT");
     }
 
-    fprintf(stderr, "len: %d\n", 
-           ASN1_STRING_length(x509_cert->cert_info->key->public_key));
-
     memcpy(octetBuffer,
            ASN1_STRING_data(x509_cert->cert_info->key->public_key),
            len = ASN1_STRING_length(x509_cert->cert_info->key->public_key));
