@@ -72,8 +72,14 @@ if ($opensslPath) {
     $ENV{'PATH'} = $opensslPath . ":" . $ENV{'PATH'};
 }
 
+if (! -f $cnfFile) {
+    print STDERR "Error: Failed to find the configratino file '$cnfFile' (use '-c')\n";
+    exit(1);
+}
+
 if (! -d $keyDir) {
     mkdir($keyDir) || die "failed to make the directory: $keyDir";
+    Vebose("creating directory $keyDir\n");
 }
 
 # generate the EC parameters, setting the keytype up
