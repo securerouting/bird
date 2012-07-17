@@ -289,18 +289,22 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
         ERROR("error reading public certificate into BIO");
     }
 
-#define BGPSEC_USE_PEM_CERTS 1
+/* #define BGPSEC_USE_PEM_CERTS 1 */
 #ifdef BGPSEC_USE_PEM_CERTS
     x509_cert = PEM_read_bio_X509_AUX(input_bio, NULL, NULL, NULL);
     if (NULL == x509_cert) {
         ERROR("failed to load the x509 cert");
     }
 #else /* following is !BGPSEC_USE_PEM_CERTS, which is DER */
-    x509_cert = d2i_X509_bio(input_bio, NULL); /* DER/ASN1 */
-    if (NULL == ocert) {
-        ERROR("failed to load the x509 cert");
+    x509_cert = X509_new();
+    if (NULL == x509_cert) {
+        ERROR("Failed to create an empty x509 certificate");
     }
-    (void)BIO_reset(certbio);
+    x509_cert = d2i_X509_bio(input_bio, &x509_cert); /* DER/ASN1 */
+    if (NULL == x509_cert) {
+        ERROR("failed to load the (DER) x509 cert");
+    }
+    BIO_reset(input_bio); /* XXX: actually needed? */
 #endif /* BGPSEC_USE_PEM_CERTS */
 
 

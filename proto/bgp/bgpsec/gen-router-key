@@ -82,7 +82,7 @@ if (! -f $cnfFile) {
 
 if (! -d $keyDir) {
     mkdir($keyDir) || die "failed to make the directory: $keyDir";
-    Vebose("creating directory $keyDir\n");
+    Verbose("creating directory $keyDir\n");
 }
 
 # generate the EC parameters, setting the keytype up
