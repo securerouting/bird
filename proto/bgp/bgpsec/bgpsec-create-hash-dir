@@ -153,6 +153,12 @@ Regexp of filenames to select from
 
 Use STRING as the new extension suffix
 
+=item  -i STRING
+
+=item --input-format=STRING
+
+Input format of files found.  Defaults to DER.
+
 =back
 
 =head2 Basic Configuration
