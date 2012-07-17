@@ -12,6 +12,7 @@ my %opts =
      'P' =>       "KEYDIR/%s.pub",
      'C' =>       "KEYDIR/%s.csr",
      'X' =>       "KEYDIR/%s.private",
+     'o' =>       "DER",
      'D' =>       365,
      'S' =>       `date +%Y%m%d0001`,
     );
@@ -28,6 +29,7 @@ LocalGetOptions(\%opts,
 
 		["GUI:separator=s", "Output Files (%s will be replaced with the SKI)"],
 		["P|public-key=s",  "Public certificate file"],
+		["o|output-format=s", "Output format (der)"],
 		["C|csr=s",         "Certificate Signing Request file"],
 		["X|private-key=s", "Private certificate file"],
 		["D|validity=i",    "The number of days the certificate should be valid for"],
@@ -51,6 +53,7 @@ my $cnfFile          	 = $opts{'c'};
 my $privateKeyFile   	 = $opts{'X'};
 my $csrFile          	 = $opts{'C'};
 my $publicCertFile   	 = $opts{'P'};
+my $outform              = $opts{'o'};
 # allow the KEYDIR to be set later
 $privateKeyFile      	 =~ s/^KEYDIR/$keyDir/;
 $csrFile             	 =~ s/^KEYDIR/$keyDir/;
@@ -108,7 +111,7 @@ System("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKey
 
 # self-sign the certificate
 # XXX: or CA-sign it
-System("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod > /dev/null 2>&1");
+System("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile -outform $outform -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod > /dev/null 2>&1");
 
 # move the files to their final destinations
 if ($finalPrivateKeyFile  =~ /%s/) {
