@@ -4,26 +4,86 @@ use File::Find;
 use strict;
 my %opts =
     (
+     'openssl' => "/usr/local/openssl-ecdsa/bin",
+     'f'       => "\.cer\$",
     );
 
 LocalGetOptions(\%opts,
 		['GUI:otherargs', '[input-directory] [output-directory]'],		
+		["GUI:separator",   "Processing Configuration"],
+		["f|file-regexp=s", "Regexp of filenames to select from"],
+		["s|suffix=s",      "Use STRING as the new extension suffix"],
+ 
+		["GUI:separator",   "Basic Configuration"],
+		["openssl|openssl-path=s", "Path to OpenSSL install directory with EC support"],
+
+		["GUI:separator",   "Output Options"],
+		["v|verbose",       "Be verbose about what is being done"], 
     );
 
 my $inputDirectory = $ARGV[0];
 my $outputDirectory = $ARGV[1];
 
+my $opensslPath      	 = $opts{'openssl'};
+my $fileRegexp           = $opts{'f'};
+
+# ensure we have input and output
 if (!defined($inputDirectory) || !defined($outputDirectory)) {
     print STDERR "Both an input and output directory are required\n";
     exit 1;
 }
 
-find(\&convert_file, $inputDirectory);
+# add in a separate openssl path
+if ($opensslPath) {
+    $ENV{'PATH'} = $opensslPath . ":" . $ENV{'PATH'};
+}
+
+if (! -d $outputDirectory) {
+    Verbose("creating $outputDirectory\n");
+    mkdir($outputDirectory);
+}
+
+# find and process every file of certain types
+Verbose("Searching directory $inputDirectory\n");
+find({no_chdir => 1, wanted => \&convert_file}, $inputDirectory);
 
 sub convert_file {
-    if ($File::Find::name =~ /\.cer/i) {
+    if ($File::Find::name =~ /$fileRegexp/io) {
+	my $ski;
 	# process it...
+	Verbose("Found $File::Find::name\n");
+	open(SKI, "openssl x509 -in $File::Find::name -text|");
+	while(<SKI>) {
+	    if (/X509v3 Subject Key Identifier/) {
+		$ski = <SKI>;
+		$ski =~ s/\s//g;
+		$ski =~s/://g;
+		last;
+	    }
+	}
+	close(SKI);
+	
+	if (defined($ski)) {
+	    my $suffix;
+	    if ($opts{'s'}) {
+		$suffix = $opts{'s'};
+	    } else {
+		$suffix = $File::Find::name;
+		$suffix =~ s/.*\.//;
+	    }
+
+	    Verbose("   linking to $ski.$suffix\n");
+	    symlink($File::Find::name, "$outputDirectory/$ski.$suffix");
+	}
     }
+}
+
+######################################################################
+# support functions
+#
+
+sub Verbose {
+    print STDERR @_ if ($opts{'v'});
 }
 
 ######################################################################
@@ -68,4 +128,54 @@ bgpsec-create-hash-dir - creates a SKI-based hash directory
 
 bgpsec-create-hash-dir /path/to/rpki-authenticated-dir /path/to/hash-dir
 
+=head1 OPTIONS
 
+=head2 Processing Configuration
+
+=over 4
+
+=item  -f STRING
+
+
+
+=item  --file-regexp=STRING
+
+Regexp of filenames to select from
+
+=item  -s STRING
+
+
+
+=item  --suffix=STRING
+
+Use STRING as the new extension suffix
+
+=back
+
+=head2 Basic Configuration
+
+=over 4
+
+=item  --openssl=STRING
+
+
+
+=item  --openssl-path=STRING
+
+Path to OpenSSL install directory with EC support
+
+=back
+
+=head2 Output Options
+
+=over 4
+
+=item  -v
+
+
+
+=item  --verbose
+
+Be verbose about what is being done
+
+=back
