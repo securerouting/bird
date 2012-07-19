@@ -12,6 +12,7 @@
 
 #include <stdint.h>
 #include <openssl/x509.h>
+#include <openssl/pem.h>
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
 
@@ -19,11 +20,6 @@
 
 /* XXX: these need to be configurable in the bird config file instead */
 #define KEY_REPO_PATH "/tmp/bgpsec-keys"
-
-/* XXX: temporary curve to use; needs the real one */
-/* the real one should be NID_secp256r1 (the 'r' is the difference) */
-/* but doesn't exist in openssl at this point? */
-#define BGPSEC_DEFAULT_CURVE NID_secp256k1
 
 /*
  * structure to store keying data in; we create a generic union until
@@ -34,11 +30,12 @@ typedef union {
    EVP_PKEY *x509_private;
 
    EC_KEY   *ecdsa_key;
+   X509     *the_key;
 } bgpsec_key_data;
 
 /* Generic error codes */
 #define BGPSEC_SUCCESS 0
-#define BGPSEC_FAILURE 1
+#define BGPSEC_FAILURE -1
 
 
 /* These match the defined algorithm bytes from the protocol definition */
@@ -50,6 +47,13 @@ typedef union {
 /* XXX: IANA has yet to assign this number; 1 is a logical guess */
 /* XXX: Definiton in draft-turner-sidr-bgpsec-algs-00.txt */
 #define BGPSEC_ALGORITHM_SHA256_ECDSA_P_256 1
+
+/* XXX: temporary curve to use; needs the real one */
+/* the real one should be NID_secp256r1 (the 'r' is the difference) */
+/* but doesn't exist in openssl at this point? */
+#define BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256 NID_secp256k1
+
+#define BGPSEC_DEFAULT_CURVE BGPSEC_ALGORITHM_SHA256_ECDSA_P_256
 
 /*
  * Signs a blob of octets in 'octets' with the certificate found using

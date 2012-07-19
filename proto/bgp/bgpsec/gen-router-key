@@ -2,36 +2,167 @@
 
 use strict;
 
-my $keyType          = "secp256k1";
-my $opensslPath      = "/usr/local/openssl-ecdsa/bin";
-my $removePassphrase = 1;
+my %opts =
+    ('d' => 	  "keys",
+     't' => 	  "secp256k1",
+     's' =>       "sha256",
+     'openssl' => "/usr/local/openssl-ecdsa/bin",
+     'c' =>       "router-key.cnf",
 
-# files to use:
-my $ecParamFile      = "router-key-params.$$.pem";
-my $privateKeyFile   = "router-key.$$.private";
-my $csrFile          = "router-key.$$.csr";
-my $publicCertFile   = "router-key.$$.cert";
-my $validityPeriod   = "365"; #days
+     'P' =>       "KEYDIR/%s.pub",
+     'C' =>       "KEYDIR/%s.csr",
+     'X' =>       "KEYDIR/%s.private",
+     'o' =>       "DER",
+     'D' =>       365,
+     'S' =>       `date +%Y%m%d0001`,
+    );
+chomp($opts{'S'});
+
+LocalGetOptions(\%opts,
+		['GUI:nootherargs', 1],
+
+		["GUI:separator=s", "Certificate Options"],
+		["d|keydir=s",      "Use this directory to store keys in"],
+		["t|keytype=s",     "Use this keytype (eg: secp256k1)"],
+		["s|sig-alg=s",     "Signature algoritm to use (sha256)"],
+		["c|conf-file=s",   "Path to the configuration file"],
+
+		["GUI:separator=s", "Output Files (%s will be replaced with the SKI)"],
+		["P|public-key=s",  "Public certificate file"],
+		["o|output-format=s", "Output format (der)"],
+		["C|csr=s",         "Certificate Signing Request file"],
+		["X|private-key=s", "Private certificate file"],
+		["D|validity=i",    "The number of days the certificate should be valid for"],
+		["S|serial=i",      "certiifcate serial number to use"], 
+
+		["GUI:separator",   "Basic Configuration"],
+		["openssl|openssl-path=s", "Path to OpenSSL install directory with EC support"],
+		
+		["GUI:separator",   "Output Options"],
+		["p|print-ski",     "Print the SKI from the created key"], 
+		["v|verbose",       "Be verbose about what is being done"], 
+		);
+
+
+my $keyDir           	 = $opts{'d'};
+my $keyType          	 = $opts{'t'};
+my $opensslPath      	 = $opts{'openssl'};
+my $cnfFile          	 = $opts{'c'};
+
+# default files to use:
+my $privateKeyFile   	 = $opts{'X'};
+my $csrFile          	 = $opts{'C'};
+my $publicCertFile   	 = $opts{'P'};
+my $outform              = $opts{'o'};
+# allow the KEYDIR to be set later
+$privateKeyFile      	 =~ s/^KEYDIR/$keyDir/;
+$csrFile             	 =~ s/^KEYDIR/$keyDir/;
+$publicCertFile      	 =~ s/^KEYDIR/$keyDir/;
+# save the final names with %s's in them for the SKI, and use temp
+# files at the moment since we don't know the SKI.
+my $finalPrivateKeyFile  = $privateKeyFile;
+my $finalCsrFile         = $csrFile;
+my $finalPublicCertFile  = $publicCertFile;
+$privateKeyFile      	 =~ s/%s/XXTEMP-$$/;
+$csrFile             	 =~ s/%s/XXTEMP-$$/;
+$publicCertFile      	 =~ s/%s/XXTEMP-$$/;
+
+my $validityPeriod       = $opts{'D'};
+my $signatureAlgorithm   = $opts{'s'};
+my $serial               = $opts{'S'};
 
 if ($opensslPath) {
     $ENV{'PATH'} = $opensslPath . ":" . $ENV{'PATH'};
 }
 
+if (! -f $cnfFile) {
+    print STDERR "Error: Failed to find the configratino file '$cnfFile' (use '-c')\n";
+    exit(1);
+}
+
+if (! -d $keyDir) {
+    mkdir($keyDir) || die "failed to make the directory: $keyDir";
+    Verbose("creating directory $keyDir\n");
+}
+
 # generate the EC parameters, setting the keytype up
-system("openssl ecparam -name $keyType -out $ecParamFile");
+System("openssl ecparam -name $keyType -genkey -out $privateKeyFile");
 
 # generate the certificate signing request
-system("openssl req -keyout $privateKeyFile -newkey ec:$ecParamFile -out $csrFile");
+System("openssl req -new -batch -config $cnfFile -key $privateKeyFile -out $csrFile");
 
-# optionally remove the enforced passphrase from above
-if ($removePassphrase) {
-    print "removing the enforced passphrase on the private key.  Please retype it\n";
-    system("openssl ec -in $privateKeyFile -out tmp.$$.private");
-    rename("tmp.$$.private", "$privateKeyFile");
+# read in the SKI so we can set the distingiuished name using it
+my $ski;
+open(I, "openssl req -in $csrFile -text|");
+while(<I>) {
+    if (/X509v3 Subject Key Identifier/) {
+	$ski = <I>;
+	$ski =~ s/\s//g;
+	$ski =~s/://g;
+	last;
+    }
 }
+close(I);
+print "$ski\n" if ($opts{'p'});
+
+# regenerate the certificate signing request with the correct subject
+System("openssl req -new -batch -subj /CN=$ski -config $cnfFile -key $privateKeyFile -out $csrFile");
+
 
 # self-sign the certificate
 # XXX: or CA-sign it
-my $serial = `date +%Y%m%d0001`;
-chomp($serial);
-system("openssl x509 -set_serial $serial -in $csrFile  -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod");
+System("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_router_ext -set_serial $serial -in $csrFile -outform $outform -out $publicCertFile -req -signkey $privateKeyFile -days $validityPeriod > /dev/null 2>&1");
+
+# move the files to their final destinations
+if ($finalPrivateKeyFile  =~ /%s/) {
+    rename($privateKeyFile, sprintf($finalPrivateKeyFile, $ski));
+}
+if ($finalCsrFile  =~ /%s/) {
+    rename($csrFile, sprintf($finalCsrFile, $ski));
+}
+if ($finalPublicCertFile  =~ /%s/) {
+    rename($publicCertFile, sprintf($finalPublicCertFile, $ski));
+}
+
+######################################################################
+# support functions
+#
+
+sub Verbose {
+    print STDERR @_ if ($opts{'v'});
+}
+
+sub System {
+    Verbose("Running: ", @_, "\n");
+    system(@_);
+}
+
+######################################################################
+# Getopt bootstrapping
+#
+sub LocalGetOptions {
+    if (eval {require Getopt::GUI::Long;}) {
+	import Getopt::GUI::Long;
+	# optional configure call
+	Getopt::GUI::Long::Configure(qw(display_help no_gui no_ignore_case allow_zero));
+	return GetOptions(@_);
+    }
+    require Getopt::Long;
+    import Getopt::Long;
+    # optional configure call
+    Getopt::Long::Configure(qw(auto_help no_ignore_case));
+    GetOptions(LocalOptionsMap(@_));
+}
+
+sub LocalOptionsMap {
+    my ($st, $cb, @opts) = ((ref($_[0]) eq 'HASH')
+			    ? (1, 1, $_[0]) : (0, 2));
+    for (my $i = $st; $i <= $#_; $i += $cb) {
+	if ($_[$i]) {
+	    next if (ref($_[$i]) eq 'ARRAY' && $_[$i][0] =~ /^GUI:/);
+	    push @opts, ((ref($_[$i]) eq 'ARRAY') ? $_[$i][0] : $_[$i]);
+	    push @opts, $_[$i+1] if ($cb == 2);
+	}
+    }
+    return @opts;
+}

@@ -1,24 +1,33 @@
 #include "validate.h"
+#include <sys/param.h>
 
 #define RESULT(test, is_success) {                                      \
-        printf("%7.7s: ", ((is_success) ? "ok" : "not ok"));             \
+        printf("%7.7s: ", ((is_success) ? "ok" : "not ok"));            \
+        printf("%4d: ", __LINE__);                                      \
         printf test;                                                    \
         printf("\n");                                                   \
         if (is_success) good++;                                         \
         else bad++;                                                     \
     }
 
+#define DIE(msg) do { fprintf(stderr, "CRITICAL FAIL: %s\n", msg); exit(1); } while(1);
+
+#define DUMMYCERTFILE "router-key.15708"
+
 int main(int argc, char **argv) {
     byte signature[1024];
     int  signature_len = sizeof(signature);
     char strBuffer[1024];
     bgpsec_key_data key_data;
-    char *ski = "fakefingerprint";
+    char ski[1024];
+    char filePrefix[MAXPATHLEN];
     int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
     BIGNUM newbignum;
     EC_POINT *new_point;
+
+    FILE *fp;
 
     printf("Testing:\n");
 
@@ -30,20 +39,31 @@ int main(int argc, char **argv) {
     int ret;
     int curveId;
 
+    /* create a dummy certificate to use */
+    system("../proto/bgp/bgpsec/gen-router-key -d " KEY_REPO_PATH " -c ../proto/bgp/bgpsec/router-key.cnf -p > ski.txt");
+    fp = fopen("ski.txt", "r");
+    if (NULL == fp)
+        DIE("failed to open the ski.txt file that should have been created");
+    ski[sizeof(ski)-1] = '\0';
+    if (NULL == fgets(ski, sizeof(ski)-1, fp))
+        DIE("Couldn't read the SKI from the ski.txt file");
+    ski[strlen(ski)-1] = '\0'; /* chomp the LF off */
+    fclose(fp);
+
+    /* now define all the file names based on it the new cert */
+    filePrefix[sizeof(filePrefix)-1] = '\0';
+    snprintf(filePrefix, sizeof(filePrefix)-1, "%s/%s", KEY_REPO_PATH, ski);
+
     while(signature_algorithms[algorithm_count] > 0) {
         bgpsec_key_data key_data;
+        curveId = signature_algorithms[algorithm_count];
 
-        switch (signature_algorithms[algorithm_count]) {
-        case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
-            /* XXX: need the right group */
-            curveId = BGPSEC_DEFAULT_CURVE;
-            key_data.ecdsa_key = EC_KEY_new_by_curve_name(curveId);
-            EC_KEY_generate_key(key_data.ecdsa_key);
-            break;
-        default:
-            printf("key setup failure; unknown algorithm\n");
-            exit(42);
-        }
+        ret = bgpsec_load_key(filePrefix, &key_data,
+                              curveId, 1);
+        RESULT(("cert sign: loaded the router key from tmp file: %s",
+                filePrefix),
+               ret == BGPSEC_SUCCESS);
+        
 
         /* generate a signature using a certificate */
         signature_len =
@@ -56,22 +76,6 @@ int main(int argc, char **argv) {
                 signature_algorithms[algorithm_count], signature_len),
                signature_len > -1);
         RESULT(("cert sign: algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
-
-        /* save the existing key */
-        ret = bgpsec_save_key("/tmp/testkey", &key_data, curveId, 1);
-        RESULT(("cert sign: saving key function returned: %d (should be %d)",
-                ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
-
-        ret = bgpsec_save_key("/tmp/testkey-public", &key_data, curveId, 0);
-        RESULT(("cert sign: saving pubkey function returned: %d (should be %d)",
-                ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
-
-        /* save the key as a fake fingerprint */
-        mkdir(KEY_REPO_PATH, 0777);
-        strBuffer[sizeof(strBuffer)-1] = '\0';
-        snprintf(strBuffer, sizeof(strBuffer)-1, "%s/%s",
-                 KEY_REPO_PATH, ski);
-        ret = bgpsec_save_key(strBuffer, &key_data, curveId, 1);
 
         /* modify the private key so it can't be part of the verification */
         BN_init(&newbignum);
@@ -108,7 +112,7 @@ int main(int argc, char **argv) {
         key_data.ecdsa_key = NULL;
 
         /* now reload the key from the files and use them to verify it */
-        ret = bgpsec_load_key("/tmp/testkey", &key_data, curveId, 1);
+        ret = bgpsec_load_key(filePrefix, &key_data, curveId, 1);
         RESULT(("cert sign: loading key function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
@@ -127,7 +131,7 @@ int main(int argc, char **argv) {
         key_data.ecdsa_key = NULL;
 
         /* now reload just the public part of the key and test just it */
-        ret = bgpsec_load_key("/tmp/testkey-public", &key_data, curveId, 0);
+        ret = bgpsec_load_key(filePrefix, &key_data, curveId, 0);
         RESULT(("cert sign: loading public key function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
