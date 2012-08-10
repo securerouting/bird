@@ -4,7 +4,7 @@ use strict;
 
 my %opts =
     ('d' => 	  "keys",
-     't' => 	  "secp256k1",
+     't' => 	  "prime256v1",
      's' =>       "sha256",
      'openssl' => "/usr/local/openssl-ecdsa/bin",
      'c' =>       "router-key.cnf",
