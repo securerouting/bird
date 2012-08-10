@@ -48,10 +48,11 @@ typedef union {
 /* XXX: Definiton in draft-turner-sidr-bgpsec-algs-00.txt */
 #define BGPSEC_ALGORITHM_SHA256_ECDSA_P_256 1
 
-/* XXX: temporary curve to use; needs the real one */
-/* the real one should be NID_secp256r1 (the 'r' is the difference) */
-/* but doesn't exist in openssl at this point? */
-#define BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256 NID_secp256k1
+/* P-256, frequently called secp256r1 in the specs and NIST
+   documentation, is called "prime256v1" in OpenSSL, which has a
+   NID specifier of NID_X9_62_prime256v1. */
+//#define BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256 NID_secp256k1
+#define BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256 NID_X9_62_prime256v1
 
 #define BGPSEC_DEFAULT_CURVE BGPSEC_ALGORITHM_SHA256_ECDSA_P_256
 
