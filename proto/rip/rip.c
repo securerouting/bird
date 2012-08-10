@@ -691,7 +691,7 @@ new_iface(struct proto *p, struct iface *new, unsigned long flags, struct iface_
   if (rif->multicast)
     DBG( "Doing multicasts!\n" );
 
-  rif->sock = sk_new_sock( p->pool );
+  rif->sock = sk_new( p->pool );
   rif->sock->type = SK_UDP;
   rif->sock->sport = P_CF->port;
   rif->sock->rx_hook = rip_rx;

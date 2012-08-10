@@ -72,7 +72,7 @@ find_nbma_node_in(list *nnl, ip_addr ip)
 static int
 ospf_sk_open(struct ospf_iface *ifa)
 {
-  sock *sk = sk_new_sock(ifa->pool);
+  sock *sk = sk_new(ifa->pool);
   sk->type = SK_IP;
   sk->dport = OSPF_PROTO;
   sk->saddr = IPA_NONE;

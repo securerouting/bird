@@ -737,7 +737,7 @@ nl_parse_route(struct nlmsghdr *h, int scan)
       (a[RTA_GATEWAY] && RTA_PAYLOAD(a[RTA_GATEWAY]) != sizeof(ip_addr)) ||
       (a[RTA_PRIORITY] && RTA_PAYLOAD(a[RTA_PRIORITY]) != 4) ||
       (a[RTA_PREFSRC] && RTA_PAYLOAD(a[RTA_PREFSRC]) != sizeof(ip_addr)) ||
-      (a[RTA_FLOW] && RTA_PAYLOAD(a[RTA_OIF]) != 4))
+      (a[RTA_FLOW] && RTA_PAYLOAD(a[RTA_FLOW]) != 4))
     {
       log(L_ERR "KRT: Malformed message received");
       return;
@@ -1066,7 +1066,7 @@ nl_open_async(void)
       return;
     }
 
-  sk = nl_async_sk = sk_new_sock(krt_pool);
+  sk = nl_async_sk = sk_new(krt_pool);
   sk->type = SK_MAGIC;
   sk->rx_hook = nl_async_hook;
   sk->fd = fd;

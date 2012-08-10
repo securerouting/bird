@@ -582,15 +582,18 @@ static struct resclass sk_class = {
 };
 
 /**
- * sk_new_sock - create a socket
+ * sk_new - create a socket
  * @p: pool
  *
  * This function creates a new socket resource. If you want to use it,
  * you need to fill in all the required fields of the structure and
  * call sk_open() to do the actual opening of the socket.
+ *
+ * The real function name is sock_new(), sk_new() is a macro wrapper
+ * to avoid collision with OpenSSL.
  */
 sock *
-sk_new_sock(pool *p)
+sock_new(pool *p)
 {
   sock *s = ralloc(p, &sk_class);
   s->pool = p;
@@ -1058,7 +1061,7 @@ sk_passive_connected(sock *s, struct sockaddr *sa, int al, int type)
   int fd = accept(s->fd, sa, &al);
   if (fd >= 0)
     {
-      sock *t = sk_new_sock(s->pool);
+      sock *t = sk_new(s->pool);
       char *err;
       t->type = type;
       t->fd = fd;
@@ -1097,7 +1100,7 @@ sk_passive_connected(sock *s, struct sockaddr *sa, int al, int type)
  * sk_open - open a socket
  * @s: socket
  *
- * This function takes a socket resource created by sk_new_sock() and
+ * This function takes a socket resource created by sk_new() and
  * initialized by the user and binds a corresponding network connection
  * to it.
  *

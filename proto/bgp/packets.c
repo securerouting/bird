@@ -21,6 +21,7 @@
 #include "nest/cli.h"
 
 #include "bgp.h"
+#undef sk_new /* remove the bird-specific compatability wrapper */
 #include "bgpsec/validate.h"
 
 static struct rate_limit rl_rcv_update,  rl_snd_update;

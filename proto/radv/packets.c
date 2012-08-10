@@ -397,7 +397,7 @@ radv_err_hook(sock *sk, int err)
 int
 radv_sk_open(struct radv_iface *ifa)
 {
-  sock *sk = sk_new_sock(ifa->ra->p.pool);
+  sock *sk = sk_new(ifa->ra->p.pool);
   sk->type = SK_IP;
   sk->dport = ICMPV6_PROTO;
   sk->saddr = IPA_NONE;
