@@ -546,6 +546,8 @@ bgp_get_attr_len(eattr *a)
  * update */
 /* Otherwise, add an additional signature to the bgpsec signature
  * attribute */
+/* Returns length of attribute added, 0 if no attribute added, and < 0
+   on error */
 unsigned int 
 bgpsec_sign(struct  bgp_conn  *conn,
 	    ea_list           *attr_list,
@@ -556,7 +558,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
   /* if this is not a bgpsec connection, done */  
   if (!conn->peer_bgpsec_support)
     {
-      return 1;
+      return 0;
     }
 	
   byte    *start = w;
@@ -577,8 +579,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
   /* if as_path attribute doesn't exist, done */
   if ( patha == NULL )
     {
-      DBG("\tbpgsec_sign: No AS_PATH?\n");
-      return 0;
+      log(L_WARN "\tbpgsec_sign: No AS_PATH?");
+      return -1;
     }
 
   u8 *pathptr = (u8 *)&(patha->u.ptr->data);
@@ -587,7 +589,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
   if ( pathptr[0] != AS_PATH_SEQUENCE )
     {
       /* must be as_sequence, as_set not allowed for bgpsec */
-      return 0;
+      return -1;
     }  
 
   pathptr += 2;
@@ -605,8 +607,9 @@ bgpsec_sign(struct  bgp_conn  *conn,
     {
       if ( bgpsa != NULL ) 
 	{
-	  DBG("\tbpgsec_sign: bpgsec attr shouldn't exist at first path AS\n");
-	  return 0;
+	  log(L_ERR
+	      "\tbpgsec_sign: bpgsec attr shouldn't exist at first path AS");
+	  return -1;
 	}
 
       pcount       = plen;
@@ -617,8 +620,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
       if ( px == NULL )
 	{
 	  /* XXX bad prefix? */
-	  DBG("\tbpgsec_sign: bad prefix found\n");
-	  return 0;
+	  log(L_ERR "\tbpgsec_sign: bad prefix found");
+	  return -1;
 	}	  
       u8       pxlen = px->n.pxlen;
       int   px_bytes = (pxlen+7) / 8;
@@ -643,8 +646,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
 
       if ( 1 >= siglength )
 	{
-	  DBG("\tbpgsec_sign:o: signing failed\n");
-	  return 0;
+	  log(L_ERR "\tbpgsec_sign:o: signing failed");
+	  return -1;
 	}    
 
       /* just single sig block XXX */
@@ -652,9 +655,9 @@ bgpsec_sign(struct  bgp_conn  *conn,
       /* 15 = 4 attr header + 11 list block size without sig segments */
       if ( remains < (sig_segment_len + 15) )
 	{
-	  DBG("\tbpgsec_sign: not enough room for bpgsec attr: %d\n",
+	  log(L_ERR "\tbpgsec_sign: not enough room for bpgsec attr: %d",
 	      (sig_segment_len + 15) );
-	  return 0;
+	  return -1;
 	}
 
       /* add new bgpsec sig attr */
@@ -682,8 +685,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
     {
       if ( bgpsa == NULL ) 
 	{
-	  DBG("\tbpgsec_sign: error: bpgsec attr does not exist\n");
-	  return 0;
+	  log(L_ERR "\tbpgsec_sign: error: bpgsec attr does not exist");
+	  return -1;
 	}
       /* figure out pcount */
       u8 pcount = 0;
@@ -707,9 +710,9 @@ bgpsec_sign(struct  bgp_conn  *conn,
       /* 15 = 4 attr header + 11 list block size without sig segments */
       if ( remains < (15 + new_sig_block_length) )
 	{
-	  DBG("\tbpgsec_sign: not enough room for bpgsec attr+: %d\n",
+	  log(L_ERR "\tbpgsec_sign: not enough room for bpgsec attr+: %d",
 	      (15 + new_sig_block_length) );
-	  return 0;
+	  return -1;
 	}
 
       /* create buffer to sign */
@@ -726,8 +729,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
 					sigbuff, BGPSEC_ALGO_SIG_LENGTH);
       if ( 1 >= siglength )
 	{
-	  DBG("\tbpgsec_sign:no: signing failed+\n");
-	  return 0;
+	  log(L_ERR "\tbpgsec_sign:no: signing failed+");
+	  return -1;
 	}    
 
       /* add bgpsec sig attr */
@@ -933,9 +936,9 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
 
   unsigned int bgpsec_len = bgpsec_sign(p->conn, attrs, w, remains, buck);
 
-  if ( bgpsec_len == 0 )
+  if ( bgpsec_len < 0 )
     {
-      DBG("bgp_encode_attrs: bgpsec signing failed\n");
+      log(L_ERR "bgp_encode_attrs: bgpsec signing failed");
       goto err_no_buffer;
     }
   ADVANCE(w, remains, bgpsec_len);
