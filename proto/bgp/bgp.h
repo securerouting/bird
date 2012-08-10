@@ -152,8 +152,8 @@ struct bgp_bucket {
 #define BGPSEC_MAX_KEY_SIG_LENGTH 64
 #define BGPSEC_SIGSEGMENT_ARRAY_LENGTH 10
 #define BGPSEC_ALGO_ID 1                /* XXX this needs to be fixed */
-#define BGPSEC_ALGO_SIG_LENGTH 64       /* XXX this needs to be fixed */
-#define BGPSEC_MAX_ALGO_SIG_LENGTH 64   /* XXX this needs to be fixed */
+#define BGPSEC_ALGO_SIG_LENGTH 128      /* XXX this needs to be fixed */
+#define BGPSEC_MAX_ALGO_SIG_LENGTH 128  /* XXX this needs to be fixed */
 
 struct sig_segment {
 	byte                 pcount;
