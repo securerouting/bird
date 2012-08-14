@@ -39,8 +39,7 @@ struct ec_key_st {
 } /* EC_KEY */;
 
 
-/* XXX: use bird's logging mechanisms */
-#define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
+#define ERROR(errmsg) do { log(L_ERR, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
 
 
 int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
@@ -52,7 +51,7 @@ int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_bin_ski(ski, ski_len,
                                      &key, BGPSEC_DEFAULT_CURVE, 1)) {
-        ERROR("");
+        ERROR("Failed to load a bgpsec key from a binary SKI");
     }
 
 
@@ -69,7 +68,7 @@ int bgpsec_sign_data_with_ascii_ski(byte *octets, int octets_len,
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_ascii_ski(ski, ski_len,
                                        &key, BGPSEC_DEFAULT_CURVE, 1)) {
-        ERROR("");
+        ERROR("Failed to load a bgpsec key from an ascii SKI");
     }
 
 
@@ -167,7 +166,7 @@ int bgpsec_verify_signature_with_ascii_ski(byte *octets, int octets_len,
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_ascii_ski(ski, ski_len,
                                        &key, BGPSEC_DEFAULT_CURVE, 0)) {
-        ERROR("");
+        ERROR("Failed to load a bgpsec key from an ascii SKI");
     }
 
 
@@ -185,7 +184,7 @@ int bgpsec_verify_signature_with_bin_ski(byte *octets, int octets_len,
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_bin_ski(ski, ski_len,
                                      &key, BGPSEC_DEFAULT_CURVE, 0)) {
-        ERROR("");
+        ERROR("Failed to load a bgpsec key from an binary SKI");
     }
 
 
@@ -213,7 +212,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
         keydata = EC_KEY_get0_private_key(key_data->ecdsa_key);
         if (NULL == keydata) {
             umask(oldUmask);
-            ERROR("failed to extract the private key");
+            ERROR("Failed to extract the private key");
         }
 
         /* save the private key */
@@ -228,7 +227,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     publicKey = EC_KEY_get0_public_key(key_data->ecdsa_key);
     if (NULL == publicKey) {
         umask(oldUmask);
-        ERROR("failed to extract the public key");
+        ERROR("Failed to extract the public key");
     }
 
     /* save the public key */
@@ -270,7 +269,7 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
         curveId = BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256;
         break;
     default:
-        ERROR("unkown curve ID");
+        ERROR("Unkown curve ID");
     }
 
     /* create the basic key structure */
@@ -279,21 +278,21 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     /* load the public key */
     input_bio = BIO_new(BIO_s_file());
     if (NULL == input_bio) {
-        ERROR("error creating BIO");
+        ERROR("Error creating OpenSSL file BIO");
     }
 
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.pub", filePrefix);
 
     if (BIO_read_filename(input_bio, filenamebuf) <=0) {
         BIO_vfree(input_bio);
-        ERROR("error reading public certificate into BIO");
+        ERROR("Error reading public certificate from BIO");
     }
 
 /* #define BGPSEC_USE_PEM_CERTS 1 */
 #ifdef BGPSEC_USE_PEM_CERTS
     x509_cert = PEM_read_bio_X509_AUX(input_bio, NULL, NULL, NULL);
     if (NULL == x509_cert) {
-        ERROR("failed to load the x509 cert");
+        ERROR("Failed to load the x509 cert");
     }
 #else /* following is !BGPSEC_USE_PEM_CERTS, which is DER */
     x509_cert = X509_new();
@@ -302,7 +301,7 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     }
     x509_cert = d2i_X509_bio(input_bio, &x509_cert); /* DER/ASN1 */
     if (NULL == x509_cert) {
-        ERROR("failed to load the (DER) x509 cert");
+        ERROR("Failed to load the (DER) x509 cert");
     }
     BIO_reset(input_bio); /* XXX: actually needed? */
 #endif /* BGPSEC_USE_PEM_CERTS */
@@ -328,7 +327,7 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     }
     publicKey = EC_POINT_new(ecGroup);
     if (!publicKey) {
-        ERROR("failed to create a new EC_POINT");
+        ERROR("Failed to create a new EC_POINT");
     }
 
     memcpy(octetBuffer,
@@ -339,11 +338,11 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
 
     ret = EC_KEY_set_public_key(key_data->ecdsa_key, publicKey);
     if (0 == publicKey) {
-        ERROR("failed to load the public key");
+        ERROR("Failed to load the public key");
     }
 
     if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
-        ERROR("newly loaded public EC key not ok");
+        ERROR("Newly loaded public EC key not ok");
     }
 
     if (loadPrivateKey) {
@@ -353,26 +352,26 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
 
         input_bio = BIO_new(BIO_s_file());
         if (NULL == input_bio) {
-            ERROR("failed to load a private key\n");
+            ERROR("Failed to load a private key");
         }
 
         if (BIO_read_filename(input_bio, filenamebuf) <=0) {
             BIO_vfree(input_bio);
-            ERROR("error reading a private key into a BIO");
+            ERROR("Error reading a private key from a BIO");
         }
 
         private_key = PEM_read_bio_PrivateKey(input_bio, NULL, NULL, NULL);
         if (NULL == private_key)
-            ERROR("failed to load the private key from the bio");
+            ERROR("Failed to load the private key from the bio");
 
         BIO_vfree(input_bio);
         
         if (!EC_KEY_set_private_key(key_data->ecdsa_key,
                                     private_key->pkey.ec->priv_key))
-            ERROR("failed to set the private key into the EC key object");
+            ERROR("Failed to set the private key into the EC key object");
 
         if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
-            ERROR("newly loaded public/private EC key not ok");
+            ERROR("Newly loaded public/private EC key not ok");
         }
     }
 
@@ -400,7 +399,7 @@ int bgpsec_load_key_from_ascii_ski(const char *ski, size_t ski_len,
         /* the ski isn't null terminated, so we'll need to replace it
            with a string that is */
         if (ski_len > sizeof(ascii_buf)) {
-            ERROR("invalid incoming SKI length");
+            ERROR("Invalid incoming SKI length");
         }
         memcpy(ascii_buf, ski, ski_len);
         ascii_buf[ski_len] = '\0';
