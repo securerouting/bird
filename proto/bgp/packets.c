@@ -164,12 +164,13 @@ static byte *
 bgp_put_cap_bgpsec(struct bgp_conn *conn UNUSED, byte *buf)
 {
   *buf++ = BGPSEC_CAPABILITY;  /* Capability 99: arbitrary number, BPGSEC */
-  *buf++ = 3;		          /* Capability data length */
+  *buf++ = 5;		          /* BGPSEC Capability length */
 
-  *buf++ = (0x80 | 0x40 | BGPSEC_VERSION); /* capable of sending and receiving
-                                          * bgpsec and bgpsec version */
+  *buf++ = (0x80 | 0x40 | BGPSEC_VERSION); /* capable of sending and receiving */
+                                           /* bgpsec and bgpsec version */
   put_u16(buf, BGP_AF_IPV4);  /* address family, just ipv4 right now */
-  buf = buf + 2;
+  buf = buf + 3;              /* 2 byte address family + 1 byte reserved */
+  *buf++ = BGPSEC_SAFI_UNICAST_FORWARD;      /* SAFI */
 
   return buf;
 }
@@ -652,8 +653,9 @@ void
 bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 {
   struct bgp_proto *p = conn->bgp;
-  int cl;
-  u16 afi;
+  int   cl;
+  u16  afi;
+  u8  safi;
 
   while (len > 0)
     {
@@ -678,39 +680,63 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	    conn->advertised_as = get_u32(opt + 2);
 	  break;
 
-	case BGPSEC_CAPABILITY: /* BPGSEC capability, currently arbitrary */
-		if ( ! p->cf->enable_bgpsec ) {
-			BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC NOT enabled");
-			goto err;
-		}
-		if ( BGPSEC_VERSION == (opt[2] & 0x0F) ) {
-			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
-			conn->peer_bgpsec_support = 1;
-		}
-		else {
-			BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC_VERSION does not match, loc : %d, rem : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
-			goto err;
-		}
-		afi = get_u16(opt + 3);
+	case BGPSEC_CAPABILITY: /* BPGSEC_CAPABILITY value currently arbitrary */
+	  if (cl != 5)          /* date length must be 5 */
+	    goto err;
 
-		if (opt[2] & 0x80) { 
-			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
-			p->bgpsec_send = 1;
-		}
-		if (opt[2] & 0x40) {
-			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
-			p->bgpsec_receive = 1;
-		}
+	  if ( ! p->cf->enable_bgpsec ) {
+	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC NOT enabled locally");
+	    goto err;
+	  }
 
-		if (BGP_AF_IPV4 == afi) {
-			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
-			p->bgpsec_ipv4 = 1;
-		}
-		else if (BGP_AF_IPV6 == afi) {
-			BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
-			p->bgpsec_ipv6 = 1;
-		}
-		break;
+	  if ( BGPSEC_VERSION == (opt[2] & 0x0F) ) {
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
+	    conn->peer_bgpsec_support = 1;
+	  }
+	  else {
+	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC_VERSION does not match, loc : %d, rem : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
+	    goto err;
+	  }
+
+	  if (opt[2] & 0x80) { 
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
+	    p->bgpsec_send = 1;
+	  }
+	  if (opt[2] & 0x40) {
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
+	    p->bgpsec_receive = 1;
+	  }
+
+	  afi = get_u16(opt + 3);
+
+	  if (BGP_AF_IPV4 == afi) {
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
+	    p->bgpsec_ipv4 = 1;
+	  }
+	  else if (BGP_AF_IPV6 == afi) {
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
+	    p->bgpsec_ipv6 = 1;
+	  }
+	  else {
+	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: unknown AFI: %d", afi);
+	    goto err;
+	  }
+
+	  p->bgpsec_safi = opt[6];
+
+	  if (BGPSEC_SAFI_UNICAST_FORWARD == p->bgpsec_safi) {
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using SAFI unicast forwarding: %d", safi);
+	  }
+	  else if (BGPSEC_SAFI_MULTICAST_FORWARD == p->bgpsec_safi) {
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using SAFI multicast forwarding : %d", safi);
+	  }
+	  else {
+	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: Uknown SAFI: %d", safi);
+	    p->bgpsec_safi = 0;
+	    goto err;
+	  }
+
+	  break;
 	  /* We can safely ignore all other capabilities */
 	}
       len -= 2 + cl;
