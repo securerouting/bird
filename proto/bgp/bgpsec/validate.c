@@ -38,9 +38,11 @@ struct ec_key_st {
    void *method_data; /* was EC_EXTRA_DATA */
 } /* EC_KEY */;
 
-
+#ifdef LOG_TO_STDERR
+#define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
+#else
 #define ERROR(errmsg) do { log(L_ERR, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
-
+#endif
 
 int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
                                   char *ski, size_t ski_len,
