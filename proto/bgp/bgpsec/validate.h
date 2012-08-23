@@ -154,4 +154,8 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
 int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int loadPrivateKey);
 
+char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
+                            const char *rootPath,
+                            const char *ski, size_t skiLen);
+
 #endif 

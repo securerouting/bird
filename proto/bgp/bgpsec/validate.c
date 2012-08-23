@@ -386,6 +386,18 @@ int bgpsec_load_key_from_ascii_ski(const char *ski, size_t ski_len,
                                    bgpsec_key_data *key_data,
                                    int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
+
+    if (!generate_ski_filename(filenamebuf, sizeof(filenamebuf),
+                               KEY_REPO_PATH, ski, ski_len)) {
+        ERROR("failed to generate a file name from a ski");
+    }
+
+    return bgpsec_load_key(filenamebuf, key_data, curveId, loadPrivateKey);
+}
+
+char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
+                            const char *rootPath,
+                            const char *ski, size_t skiLen) {
     char octetBuffer[4096];
     BIGNUM *privateData = NULL;
     EC_POINT *publicKey;
@@ -398,25 +410,37 @@ int bgpsec_load_key_from_ascii_ski(const char *ski, size_t ski_len,
     char ascii_buf[MAXPATHLEN];
 
     /* verify that the incoming data is appropriate */
+    if (skiLen > filenamebufLen
+        - strlen(rootPath)
+        - 3 /* for slashes */) {
+        return NULL;
+    }
 
-    if (ski[ski_len]-1 != 0) {
+    if (ski[skiLen]-1 != 0) {
         /* the ski isn't null terminated, so we'll need to replace it
            with a string that is */
-        if (ski_len > sizeof(ascii_buf)) {
-            ERROR("Invalid incoming SKI length");
+        if (skiLen > sizeof(ascii_buf)) {
+            ERRORMSG("Invalid incoming SKI length");
+            return NULL;
         }
-        memcpy(ascii_buf, ski, ski_len);
-        ascii_buf[ski_len] = '\0';
+        memcpy(ascii_buf, ski, skiLen);
+        ascii_buf[skiLen] = '\0';
         ski = ascii_buf;
     }
 
-    /* XXX: build a hash tree directory structure instead? */
-    filenamebuf[sizeof(filenamebuf)-1] = '\0';
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%s",
-             KEY_REPO_PATH, ski);
+    filenamebuf[filenamebufLen-1] = '\0';
 
-    return bgpsec_load_key(filenamebuf, key_data, curveId, loadPrivateKey);
-}
+    /* if the ski is ridicousouly short, just put it in a flat directory */
+    if (skiLen <= 6) {
+        snprintf(filenamebuf, filenamebuf-1, "%s/%s", rootPath, ski);
+    } else {
+        snprintf(filenamebuf, filenamebuf-1, "%s/%2.2s/%4.4s/%s",
+                 rootPath,
+                 ski, ski + 2, ski + 6);
+    }
+
+    return filenamebuf;
+}    
 
 int bgpsec_load_key_from_bin_ski(const char *ski, size_t ski_len,
                                  bgpsec_key_data *key_data,

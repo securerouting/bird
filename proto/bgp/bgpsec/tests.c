@@ -53,6 +53,8 @@ int main(int argc, char **argv) {
     /* now define all the file names based on it the new cert */
     filePrefix[sizeof(filePrefix)-1] = '\0';
     snprintf(filePrefix, sizeof(filePrefix)-1, "%s/%s", KEY_REPO_PATH, ski);
+    generate_ski_filename(filePrefix, sizeof(filePrefix), KEY_REPO_PATH,
+                          ski, strlen(ski));
 
     while(signature_algorithms[algorithm_count] > 0) {
         bgpsec_key_data key_data;
