@@ -39,10 +39,12 @@ struct ec_key_st {
 } /* EC_KEY */;
 
 #ifdef LOG_TO_STDERR
-#define ERROR(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
+#define ERRORMSG(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); } while(0);
 #else
-#define ERROR(errmsg) do { log(L_ERR, "Error: %s\n", errmsg); return(BGPSEC_FAILURE); } while(0);
+#define ERRORMSG(errmsg) do { log(L_ERR, "Error: %s\n", errmsg); } while(0);
 #endif
+
+#define ERROR(errmsg) do { ERRORMSG(errmsg); return(BGPSEC_FAILURE); } while(0);
 
 int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
                                   char *ski, size_t ski_len,
