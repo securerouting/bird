@@ -24,6 +24,8 @@ int main(int argc, char **argv) {
     int  signature_algorithms[] = { BGPSEC_ALGORITHM_SHA256_ECDSA_P_256, -1 };
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
+    struct bgp_config bgpconfig;
+
     BIGNUM newbignum;
     EC_POINT *new_point;
 
@@ -69,7 +71,8 @@ int main(int argc, char **argv) {
 
         /* generate a signature using a certificate */
         signature_len =
-            bgpsec_sign_data_with_cert(data_to_sign, sizeof(data_to_sign),
+            bgpsec_sign_data_with_cert(&bgpconfig,
+                                       data_to_sign, sizeof(data_to_sign),
                                        key_data,
                                        signature_algorithms[algorithm_count],
                                        signature, sizeof(signature));
@@ -84,7 +87,7 @@ int main(int argc, char **argv) {
         EC_KEY_set_private_key(key_data.ecdsa_key, &newbignum);
 
         /* verify that the signature matches */
-        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+        ret = bgpsec_verify_signature_with_cert(&bgpconfig, data_to_sign,
                                                 sizeof(data_to_sign),
                                                 key_data,
                                                 signature_algorithms[algorithm_count],
@@ -100,7 +103,8 @@ int main(int argc, char **argv) {
         EC_POINT_free(new_point);
 
         /* verify that the signature no longer matches */
-        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+        ret = bgpsec_verify_signature_with_cert(&bgpconfig,
+                                                data_to_sign,
                                                 sizeof(data_to_sign),
                                                 key_data,
                                                 signature_algorithms[algorithm_count],
@@ -119,7 +123,8 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
         /* verify that the signature matches again with the loaded key */
-        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+        ret = bgpsec_verify_signature_with_cert(&bgpconfig,
+                                                data_to_sign,
                                                 sizeof(data_to_sign),
                                                 key_data,
                                                 signature_algorithms[algorithm_count],
@@ -138,7 +143,8 @@ int main(int argc, char **argv) {
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
         /* verify that the signature matches again with the public key */
-        ret = bgpsec_verify_signature_with_cert(data_to_sign,
+        ret = bgpsec_verify_signature_with_cert(&bgpconfig,
+                                                data_to_sign,
                                                 sizeof(data_to_sign),
                                                 key_data,
                                                 signature_algorithms[algorithm_count],
@@ -150,7 +156,8 @@ int main(int argc, char **argv) {
         /* generate a signature using a fingerprint */
         /* XXX: set test directory to search for matching ski->certs */
         signature_len =
-            bgpsec_sign_data_with_ascii_ski(data_to_sign,
+            bgpsec_sign_data_with_ascii_ski(&bgpconfig,
+                                            data_to_sign,
                                             sizeof(data_to_sign),
                                             ski, strlen(ski)+1,
                                             signature_algorithms[algorithm_count],
@@ -163,7 +170,8 @@ int main(int argc, char **argv) {
         
 
         /* verify that the signature matches */
-        ret = bgpsec_verify_signature_with_ascii_ski(data_to_sign,
+        ret = bgpsec_verify_signature_with_ascii_ski(&bgpconfig,
+                                                     data_to_sign,
                                                      sizeof(data_to_sign),
                                                      ski, strlen(ski)+1,
                                                      signature_algorithms[algorithm_count],

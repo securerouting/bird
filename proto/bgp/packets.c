@@ -998,7 +998,8 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
       memcpy((hashbuff + BGPSEC_ALGO_SIG_LENGTH), pathptr, 4);
       
       if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_bin_ski
-	   (hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4),
+	   (conn->bgp->cf,
+            hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4),
 	    sblock->sig_segments[cseg].subject_key_id, 
 	    sblock->sig_segments[cseg].subject_key_id_length,
 	    sblock->algo_suite_id,
@@ -1033,7 +1034,8 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
   memcpy((hashbuff + 19), &prefix, prefix_bytes);
 
   if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_bin_ski
-       (hashbuff, (19 + prefix_bytes),
+       (conn->bgp->cf,
+        hashbuff, (19 + prefix_bytes),
 	sblock->sig_segments[cseg].subject_key_id, 
 	sblock->sig_segments[cseg].subject_key_id_length,
 	sblock->algo_suite_id,

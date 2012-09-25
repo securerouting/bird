@@ -46,42 +46,45 @@ struct ec_key_st {
 
 #define ERROR(errmsg) do { ERRORMSG(errmsg); return(BGPSEC_FAILURE); } while(0);
 
-int bgpsec_sign_data_with_bin_ski(byte *octets, int octets_len,
+int bgpsec_sign_data_with_bin_ski(struct bgp_config *conf,
+                                  byte *octets, int octets_len,
                                   char *ski, size_t ski_len,
                                   int algorithm, byte *signature,
                                   int in_signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_bin_ski(ski, ski_len,
+        bgpsec_load_key_from_bin_ski(conf, ski, ski_len,
                                      &key, BGPSEC_DEFAULT_CURVE, 1)) {
         ERROR("Failed to load a bgpsec key from a binary SKI");
     }
 
 
-    return bgpsec_sign_data_with_cert(octets, octets_len, key,
+    return bgpsec_sign_data_with_cert(conf, octets, octets_len, key,
                                       algorithm, signature, in_signature_len);
 }
 
-int bgpsec_sign_data_with_ascii_ski(byte *octets, int octets_len,
+int bgpsec_sign_data_with_ascii_ski(struct bgp_config *conf,
+                                    byte *octets, int octets_len,
                                     char *ski, size_t ski_len,
                                     int algorithm, byte *signature,
                                     int in_signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_ascii_ski(ski, ski_len,
+        bgpsec_load_key_from_ascii_ski(conf, ski, ski_len,
                                        &key, BGPSEC_DEFAULT_CURVE, 1)) {
         ERROR("Failed to load a bgpsec key from an ascii SKI");
     }
 
 
-    return bgpsec_sign_data_with_cert(octets, octets_len, key,
+    return bgpsec_sign_data_with_cert(conf, octets, octets_len, key,
                                       algorithm, signature, in_signature_len);
                                       
 }
 
-int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
+int bgpsec_sign_data_with_cert(struct bgp_config *conf,
+                               byte *octets, int octets_len,
                                bgpsec_key_data cert,
                                int signature_algorithm,
                                byte *signature, int signature_len) {
@@ -136,7 +139,8 @@ int bgpsec_sign_data_with_cert(byte *octets, int octets_len,
     return -1;
 }
 
-int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
+int bgpsec_verify_signature_with_cert(struct bgp_config *conf,
+                                      byte *octets, int octets_len,
                                       bgpsec_key_data cert,
                                       int signature_algorithm,
                                       byte *signature, int signature_len) {
@@ -161,38 +165,40 @@ int bgpsec_verify_signature_with_cert(byte *octets, int octets_len,
     return BGPSEC_SIGNATURE_MISMATCH;
 }
     
-int bgpsec_verify_signature_with_ascii_ski(byte *octets, int octets_len,
+int bgpsec_verify_signature_with_ascii_ski(struct bgp_config *conf,
+                                           byte *octets, int octets_len,
                                            char *ski, size_t ski_len,
                                            int signature_algorithm,
                                            byte *signature, int signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_ascii_ski(ski, ski_len,
+        bgpsec_load_key_from_ascii_ski(conf, ski, ski_len,
                                        &key, BGPSEC_DEFAULT_CURVE, 0)) {
         ERROR("Failed to load a bgpsec key from an ascii SKI");
     }
 
 
-    return bgpsec_verify_signature_with_cert(octets, octets_len, key,
+    return bgpsec_verify_signature_with_cert(conf, octets, octets_len, key,
                                              signature_algorithm,
                                              signature, signature_len);
 }
 
-int bgpsec_verify_signature_with_bin_ski(byte *octets, int octets_len,
-                                           char *ski, size_t ski_len,
-                                           int signature_algorithm,
-                                           byte *signature, int signature_len) {
+int bgpsec_verify_signature_with_bin_ski(struct bgp_config *conf,
+                                         byte *octets, int octets_len,
+                                         char *ski, size_t ski_len,
+                                         int signature_algorithm,
+                                         byte *signature, int signature_len) {
     bgpsec_key_data key;
 
     if (BGPSEC_SUCCESS !=
-        bgpsec_load_key_from_bin_ski(ski, ski_len,
+        bgpsec_load_key_from_bin_ski(conf, ski, ski_len,
                                      &key, BGPSEC_DEFAULT_CURVE, 0)) {
         ERROR("Failed to load a bgpsec key from an binary SKI");
     }
 
 
-    return bgpsec_verify_signature_with_cert(octets, octets_len, key,
+    return bgpsec_verify_signature_with_cert(conf, octets, octets_len, key,
                                              signature_algorithm,
                                              signature, signature_len);
 }
@@ -432,9 +438,9 @@ char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
 
     /* if the ski is ridicousouly short, just put it in a flat directory */
     if (skiLen <= 6) {
-        snprintf(filenamebuf, filenamebuf-1, "%s/%s", rootPath, ski);
+        snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%s", rootPath, ski);
     } else {
-        snprintf(filenamebuf, filenamebuf-1, "%s/%2.2s/%4.4s/%s",
+        snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%2.2s/%4.4s/%s",
                  rootPath,
                  ski, ski + 2, ski + 6);
     }
