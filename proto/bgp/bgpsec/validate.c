@@ -388,13 +388,16 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
     return BGPSEC_SUCCESS;
 }
 
-int bgpsec_load_key_from_ascii_ski(const char *ski, size_t ski_len,
+int bgpsec_load_key_from_ascii_ski(struct bgp_config *conf,
+                                   const char *ski, size_t ski_len,
                                    bgpsec_key_data *key_data,
                                    int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
 
     if (!generate_ski_filename(filenamebuf, sizeof(filenamebuf),
-                               KEY_REPO_PATH, ski, ski_len)) {
+                               (conf && conf->bgpsec_key_repo_path) ?
+                               conf->bgpsec_key_repo_path : KEY_REPO_PATH,
+                               ski, ski_len)) {
         ERROR("failed to generate a file name from a ski");
     }
 
@@ -422,7 +425,7 @@ char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
         return NULL;
     }
 
-    if (ski[skiLen]-1 != 0) {
+    if (ski[skiLen-1] != 0) {
         /* the ski isn't null terminated, so we'll need to replace it
            with a string that is */
         if (skiLen > sizeof(ascii_buf)) {
@@ -438,9 +441,9 @@ char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
 
     /* if the ski is ridicousouly short, just put it in a flat directory */
     if (skiLen <= 6) {
-        snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%s", rootPath, ski);
+        snprintf(filenamebuf, filenamebufLen-1, "%s/%s", rootPath, ski);
     } else {
-        snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s/%2.2s/%4.4s/%s",
+        snprintf(filenamebuf, filenamebufLen-1, "%s/%2.2s/%4.4s/%s",
                  rootPath,
                  ski, ski + 2, ski + 6);
     }
@@ -448,7 +451,8 @@ char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
     return filenamebuf;
 }    
 
-int bgpsec_load_key_from_bin_ski(const char *ski, size_t ski_len,
+int bgpsec_load_key_from_bin_ski(struct bgp_config *conf,
+                                 const char *ski, size_t ski_len,
                                  bgpsec_key_data *key_data,
                                  int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
@@ -473,7 +477,8 @@ int bgpsec_load_key_from_bin_ski(const char *ski, size_t ski_len,
     ascii_ski_buf[sizeof(ascii_ski_buf)-1] = '\0';
 
     return
-        bgpsec_load_key_from_ascii_ski(ascii_ski_buf, sizeof(ascii_ski_buf),
+        bgpsec_load_key_from_ascii_ski(conf,
+                                       ascii_ski_buf, sizeof(ascii_ski_buf),
                                        key_data, curveId, loadPrivateKey);
 }
 

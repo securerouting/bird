@@ -14,6 +14,8 @@
 
 #define DUMMYCERTFILE "router-key.15708"
 
+#define TEST_KEY_REPO_PATH "/tmp/bgpsec-keys-testrepo"
+
 int main(int argc, char **argv) {
     byte signature[1024];
     int  signature_len = sizeof(signature);
@@ -25,6 +27,7 @@ int main(int argc, char **argv) {
     byte data_to_sign[] = { 1,2,3,4,5,6,7,8 };
 
     struct bgp_config bgpconfig;
+    bgpconfig.bgpsec_key_repo_path = TEST_KEY_REPO_PATH;
 
     BIGNUM newbignum;
     EC_POINT *new_point;
@@ -42,7 +45,7 @@ int main(int argc, char **argv) {
     int curveId;
 
     /* create a dummy certificate to use */
-    system("../proto/bgp/bgpsec/gen-router-key -d " KEY_REPO_PATH " -c ../proto/bgp/bgpsec/router-key.cnf -p > ski.txt");
+    system("../proto/bgp/bgpsec/gen-router-key -d " TEST_KEY_REPO_PATH " -c ../proto/bgp/bgpsec/router-key.cnf -p > ski.txt");
     fp = fopen("ski.txt", "r");
     if (NULL == fp)
         DIE("failed to open the ski.txt file that should have been created");
@@ -54,8 +57,8 @@ int main(int argc, char **argv) {
 
     /* now define all the file names based on it the new cert */
     filePrefix[sizeof(filePrefix)-1] = '\0';
-    snprintf(filePrefix, sizeof(filePrefix)-1, "%s/%s", KEY_REPO_PATH, ski);
-    generate_ski_filename(filePrefix, sizeof(filePrefix), KEY_REPO_PATH,
+    snprintf(filePrefix, sizeof(filePrefix)-1, "%s/%s", TEST_KEY_REPO_PATH, ski);
+    generate_ski_filename(filePrefix, sizeof(filePrefix), TEST_KEY_REPO_PATH,
                           ski, strlen(ski));
 
     while(signature_algorithms[algorithm_count] > 0) {
