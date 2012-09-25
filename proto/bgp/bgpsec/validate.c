@@ -395,8 +395,9 @@ int bgpsec_load_key_from_ascii_ski(struct bgp_config *conf,
     char filenamebuf[MAXPATHLEN];
 
     if (!generate_ski_filename(filenamebuf, sizeof(filenamebuf),
-                               (conf && conf->bgpsec_key_repo_path) ?
-                               conf->bgpsec_key_repo_path : KEY_REPO_PATH,
+                               ((conf && conf->bgpsec_key_repo_path) ?
+                                conf->bgpsec_key_repo_path :
+                                DEFAULT_KEY_REPO_PATH),
                                ski, ski_len)) {
         ERROR("failed to generate a file name from a ski");
     }

@@ -4,7 +4,7 @@ use strict;
 use File::Path qw(mkpath);
 
 my %opts =
-    ('d' => 	  "keys",
+    ('d' => 	  "/usr/share/bird/bgpsec-keys",
      't' => 	  "prime256v1",
      's' =>       "sha256",
      'openssl' => "/usr/local/openssl-ecdsa/bin",

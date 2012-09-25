@@ -20,7 +20,7 @@
 #include "../bgp.h"
 
 /* XXX: these need to be configurable in the bird config file instead */
-#define KEY_REPO_PATH "/tmp/bgpsec-keys"
+#define DEFAULT_KEY_REPO_PATH "/usr/share/bird/bgpsec-keys"
 
 /*
  * structure to store keying data in; we create a generic union until
