@@ -203,7 +203,8 @@ int bgpsec_verify_signature_with_bin_ski(struct bgp_config *conf,
                                              signature, signature_len);
 }
 
-int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
+int bgpsec_save_key(struct bgp_config *conf,
+                    const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int savePrivateKey) {
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
@@ -227,7 +228,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
 
         /* save the private key */
         snprintf(filenamebuf, sizeof(filenamebuf)-1,
-                 "%s.private", filePrefix);
+                 "%s.bin_private", filePrefix);
         saveTo = fopen(filenamebuf, "w");
         BN_print_fp(saveTo, keydata);
         fclose(saveTo);
@@ -246,7 +247,7 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
                              publicKey, POINT_CONVERSION_COMPRESSED,
                              octetBuffer, sizeof(octetBuffer), NULL);
 
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.public", filePrefix);
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.bin_pub", filePrefix);
     saveTo = fopen(filenamebuf, "w");
     fwrite(octetBuffer, len, 1, saveTo);
     fclose(saveTo);
@@ -256,7 +257,8 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
     return BGPSEC_SUCCESS;
 }
 
-int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
+int bgpsec_load_key(struct bgp_config *conf,
+                    const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int loadPrivateKey) {
     char filenamebuf[MAXPATHLEN];
     char octetBuffer[4096];
@@ -385,6 +387,10 @@ int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
         }
     }
 
+    if (conf->bgpsec_save_binary_keys) {
+        /* ignore warnings; we have all the data we need anyway */
+        bgpsec_save_key(conf, filePrefix, key_data, curveId, loadPrivateKey);
+    }
     return BGPSEC_SUCCESS;
 }
 
@@ -402,7 +408,8 @@ int bgpsec_load_key_from_ascii_ski(struct bgp_config *conf,
         ERROR("failed to generate a file name from a ski");
     }
 
-    return bgpsec_load_key(filenamebuf, key_data, curveId, loadPrivateKey);
+    return bgpsec_load_key(conf, filenamebuf, key_data,
+                           curveId, loadPrivateKey);
 }
 
 char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,

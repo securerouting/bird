@@ -145,7 +145,8 @@ int bgpsec_verify_signature_with_bin_ski(struct bgp_config *conf,
  *   Success: BGPSEC_SUCCESS
  *   Failure: BGPSEC_FAILURE
  */
-int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
+int bgpsec_save_key(struct bgp_config *conf,
+                    const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int savePrivateKey);
 
 /*
@@ -158,7 +159,8 @@ int bgpsec_save_key(const char *filePrefix, bgpsec_key_data *key_data,
  *   Success: BGPSEC_SUCCESS
  *   Failure: BGPSEC_FAILURE
  */
-int bgpsec_load_key(const char *filePrefix, bgpsec_key_data *key_data,
+int bgpsec_load_key(struct bgp_config *conf,
+                    const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int loadPrivateKey);
 
 char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,

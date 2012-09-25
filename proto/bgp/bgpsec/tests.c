@@ -28,6 +28,7 @@ int main(int argc, char **argv) {
 
     struct bgp_config bgpconfig;
     bgpconfig.bgpsec_key_repo_path = TEST_KEY_REPO_PATH;
+    bgpconfig.bgpsec_save_binary_keys = 1;
 
     BIGNUM newbignum;
     EC_POINT *new_point;
@@ -65,7 +66,7 @@ int main(int argc, char **argv) {
         bgpsec_key_data key_data;
         curveId = signature_algorithms[algorithm_count];
 
-        ret = bgpsec_load_key(filePrefix, &key_data,
+        ret = bgpsec_load_key(&bgpconfig, filePrefix, &key_data,
                               curveId, 1);
         RESULT(("cert sign: loaded the router key from tmp file: %s",
                 filePrefix),
@@ -121,7 +122,7 @@ int main(int argc, char **argv) {
         key_data.ecdsa_key = NULL;
 
         /* now reload the key from the files and use them to verify it */
-        ret = bgpsec_load_key(filePrefix, &key_data, curveId, 1);
+        ret = bgpsec_load_key(&bgpconfig, filePrefix, &key_data, curveId, 1);
         RESULT(("cert sign: loading key function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
@@ -141,7 +142,7 @@ int main(int argc, char **argv) {
         key_data.ecdsa_key = NULL;
 
         /* now reload just the public part of the key and test just it */
-        ret = bgpsec_load_key(filePrefix, &key_data, curveId, 0);
+        ret = bgpsec_load_key(&bgpconfig, filePrefix, &key_data, curveId, 0);
         RESULT(("cert sign: loading public key function returned: %d (should be %d)",
                 ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
