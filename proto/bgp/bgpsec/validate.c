@@ -16,10 +16,16 @@
 #include <openssl/bn.h>
 #include "validate.h"
 
-/* XXX: this is copied from openssl's (1.0.1c) ec_lcl.h which could change
-        But they don't provide an API to get to the private key section
-        choices: keep going as is, or try to switch to X509 cert signing
-        functions
+/* define if the openssl errors should be logged */
+/* #define LOG_OPENSSL_ERRORS */
+
+/* define if the logging should go to STDERR instead of the bird log file */
+/* #define LOG_TO_STDERR */
+
+/* XXX: this is copied from openssl's (1.0.1c) ec_lcl.h which could
+        change But they don't provide an API to get to the private key
+        section.  This isn't the right way to go, but is currently the
+        only available choice.
 */
 struct ec_key_st {
         int version;
@@ -45,6 +51,14 @@ struct ec_key_st {
 #endif
 
 #define ERROR(errmsg) do { ERRORMSG(errmsg); return(BGPSEC_FAILURE); } while(0);
+
+void print_openssl_errors() {
+#ifdef LOG_OPENSSL_ERRORS
+#ifdef LOG_TO_STDERR
+    ERR_print_errors_fp(stderr);
+#endif /* LOG_TO_STDERR */
+#endif /* LOG_OPENSSL_ERRORS */
+}
 
 int bgpsec_sign_data_with_bin_ski(struct bgp_config *conf,
                                   byte *octets, int octets_len,
@@ -159,6 +173,12 @@ int bgpsec_verify_signature_with_cert(struct bgp_config *conf,
     result = ECDSA_do_verify(octets, octets_len, ecdsa_signature,
                              cert.ecdsa_key);
 
+    if (result == -1) {
+        /* openssl error */
+        print_openssl_errors();
+        return BGPSEC_SIGNATURE_MISMATCH;
+    }
+
     if (result == 1)
         return BGPSEC_SIGNATURE_MATCH;
 
@@ -260,7 +280,7 @@ int bgpsec_save_key(struct bgp_config *conf,
 int bgpsec_load_key(struct bgp_config *conf,
                     const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int loadPrivateKey) {
-    char filenamebuf[MAXPATHLEN];
+    char filenamebuf[MAXPATHLEN], filenamebuf2[MAXPATHLEN];
     char octetBuffer[4096];
     BIGNUM *privateData = NULL;
     EC_POINT *publicKey = NULL;
@@ -274,8 +294,10 @@ int bgpsec_load_key(struct bgp_config *conf,
     EVP_PKEY       *private_key = NULL;
     X509           *x509_cert = NULL;
 
-    filenamebuf[sizeof(filenamebuf)-1] = '\0';
+    struct stat statBuf;
+    struct stat statBuf2;
 
+    /* translate the curve ID to the OpenSSL identifier */
     switch (curveId) {
     case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
         curveId = BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256;
@@ -283,6 +305,80 @@ int bgpsec_load_key(struct bgp_config *conf,
     default:
         ERROR("Unkown curve ID");
     }
+
+
+    filenamebuf[sizeof(filenamebuf)-1] = '\0';
+    filenamebuf2[sizeof(filenamebuf2)-1] = '\0';
+    /* load the public key */
+    snprintf(filenamebuf2, sizeof(filenamebuf2)-1, "%s.bin_pub", filePrefix);
+    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.pub", filePrefix);
+    
+    if (stat(filenamebuf2, &statBuf2) == 0) {
+        /* if binary keys are found then we can load them directly
+           instead of having to load and parse an x.509 cert */
+
+        if (stat(filenamebuf, &statBuf) == 0) {
+            /* make sure the x.509 is not newer than the private file */
+            if (statBuf.st_mtime > statBuf2.st_mtime)
+                goto load_x509_keys;
+        }
+
+        /* create the basic key structure */
+        key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
+
+        if (loadPrivateKey) {
+            /* load the private key */
+            snprintf(filenamebuf, sizeof(filenamebuf)-1,
+                     "%s.bin_private", filePrefix);
+            loadFrom = fopen(filenamebuf, "r");
+            if (loadFrom == NULL) {
+                ERRORMSG("failed to open the private key file");
+                goto load_x509_keys;
+            }
+
+            len = fread(octetBuffer, sizeof(octetBuffer), 1, loadFrom);
+            if (len < 0)
+                ERROR("failed to read the private key file");
+
+            fclose(loadFrom);
+
+            BN_hex2bn(&privateData, octetBuffer);
+            EC_KEY_set_private_key(key_data->ecdsa_key, privateData);
+        }
+
+        /* find the size of the file */
+    
+        loadFrom = fopen(filenamebuf2, "r"); 
+        if (fread(octetBuffer, statBuf2.st_size, 1, loadFrom) != 1) {
+            ERROR("failed to read the public key file");
+        }
+        fclose(loadFrom);
+
+        /* XXX: leaks the curve object */
+        ecGroup = EC_GROUP_new_by_curve_name(curveId);
+        if (NULL == ecGroup) {
+            ERROR("Failed to create a EC_GROUP");
+        }
+        publicKey = EC_POINT_new(ecGroup);
+        if (!publicKey) {
+            ERROR("failed to create a new EC_POINT");
+        }
+        EC_POINT_oct2point(ecGroup, publicKey, octetBuffer,
+                           statBuf2.st_size, NULL);
+
+        ret = EC_KEY_set_public_key(key_data->ecdsa_key, publicKey);
+        if (0 == publicKey) {
+            ERROR("failed to load the public key");
+        }
+
+        if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
+            ERROR("newly loaded EC key not ok");
+        }
+
+        return BGPSEC_SUCCESS;
+    }
+
+  load_x509_keys:
 
     /* create the basic key structure */
     key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
