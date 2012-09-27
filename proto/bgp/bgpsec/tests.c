@@ -213,10 +213,10 @@ int main(int argc, char **argv) {
                                                 signature_algorithms[algorithm_count],
                                                 signature, sizeof(signature));
 
-            RESULT(("ski sign:   algorithm %d, signature length (%d) is not negative",
+            RESULT(("ski sign:  algorithm %d, signature length (%d) is not negative",
                     signature_algorithms[algorithm_count], signature_len),
                    signature_len > -1);
-            RESULT(("ski sign:   algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
+            RESULT(("ski sign:  algorithm %d, signature length (%d) has at least a byte", signature_algorithms[algorithm_count], signature_len), signature_len > 0);
         
 
             /* verify that the signature matches */
@@ -226,9 +226,51 @@ int main(int argc, char **argv) {
                                                          ski, strlen(ski)+1,
                                                          signature_algorithms[algorithm_count],
                                                          signature, sizeof(signature));
-            RESULT(("ski sign:   verify signature result: %d (should be %d)",
+            RESULT(("ski sign:  verify signature result: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MATCH),
                    ret == BGPSEC_SIGNATURE_MATCH);
+
+            if (bin_save) {
+                /* Nuke the x.509 certificate version of the key, and make
+                   sure the binary version can be loaded by itself. */
+                snprintf(fileName, sizeof(fileName), "%s.pub", filePrefix);
+                unlink(fileName);
+                snprintf(fileName, sizeof(fileName), "%s.private", filePrefix);
+                unlink(fileName);
+        
+
+                /* verify that the signature matches with an ski */
+                ret = bgpsec_verify_signature_with_ascii_ski(&bgpconfig,
+                                                             data_to_sign,
+                                                             sizeof(data_to_sign),
+                                                             ski, strlen(ski)+1,
+                                                             signature_algorithms[algorithm_count],
+                                                             signature, sizeof(signature));
+
+                RESULT(("ski sign:  verify signature result of binary only: %d (should be %d)",
+                        ret, BGPSEC_SIGNATURE_MATCH),
+                       ret == BGPSEC_SIGNATURE_MATCH);
+
+
+                /* verify that the signature matches with the key */
+
+                ret = bgpsec_load_key(&bgpconfig, filePrefix, &key_data, curveId, 1);
+                RESULT(("cert sign: loading binary-only key function returned: %d (should be %d)",
+                        ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
+        
+                /* verify that the signature matches again with the loaded key */
+                ret = bgpsec_verify_signature_with_cert(&bgpconfig,
+                                                        data_to_sign,
+                                                        sizeof(data_to_sign),
+                                                        key_data,
+                                                        signature_algorithms[algorithm_count],
+                                                        signature, signature_len);
+                RESULT(("cert sign: verify signature result of binary-only: %d (should be %d)",
+                        ret, BGPSEC_SIGNATURE_MATCH),
+                       ret == BGPSEC_SIGNATURE_MATCH);
+            }        
+
+
 
             /* move on to the next algorithm */
             algorithm_count++;
