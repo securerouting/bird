@@ -147,42 +147,6 @@ struct bgp_bucket {
   ea_list eattrs[0];			/* Per-bucket extended attributes */
 };
 
-/* BGPSec constants / structures */
-
-#define BGPSEC_MAX_KEY_ID_LENGTH  255
-#define BGPSEC_MAX_KEY_SIG_LENGTH 64
-#define BGPSEC_SIGSEGMENT_ARRAY_LENGTH 10
-#define BGPSEC_ALGO_ID 1                /* XXX this needs to be fixed */
-#define BGPSEC_ALGO_SIG_LENGTH 128      /* XXX this needs to be fixed */
-#define BGPSEC_MAX_ALGO_SIG_LENGTH 128  /* XXX this needs to be fixed */
-
-#define BGPSEC_SAFI_UNICAST_FORWARD   1 /* RFC 4760, Multi-Proto Ext. for BGP4 */
-#define BGPSEC_SAFI_MULTICAST_FORWARD 2 /* RFC 4760, Multi-Proto Ext. for BGP4 */
-
-struct sig_segment {
-	byte                 pcount;
-	/* rfc5280: ski lengths are suggested: 8 | 20 octs, BUT no max is set */
-	byte                 subject_key_id_length; 
-	byte                 subject_key_id[BGPSEC_MAX_KEY_ID_LENGTH];
-                       /* size fixed by algorithm type */
-	byte                 signature[BGPSEC_MAX_ALGO_SIG_LENGTH];
-	struct sig_segment  *next;
-};
-
-struct sig_list_block {
-	byte                 algo_suite_id;
-	u16                  sig_list_block_length;
-	int                  number_of_sig_segments;
-	struct sig_segment   sig_segments[BGPSEC_SIGSEGMENT_ARRAY_LENGTH];
-};
-
-struct bgpsec_sig_attr {
-	u64                   expire_time;
-	int                   number_of_sig_blocks;
- 	struct sig_list_block sig_list_blocks[2];
-};
-
-
 #define BGP_PORT		179
 #define BGP_VERSION		4
 #define BGP_HEADER_LENGTH	19
@@ -193,7 +157,17 @@ struct bgpsec_sig_attr {
 /* BGPSec constants */
 
 #define BGPSEC_VERSION	    0
-#define BGPSEC_CAPABILITY	99  /* xxx currently an arbitrary value */
+#define BGPSEC_CAPABILITY   99  /* xxx currently an arbitrary value */
+#define BGPSEC_SPATH_CONFED_FLAG  0x80
+
+#define BGPSEC_SKI_LENGTH           20
+#define BGPSEC_ALGO_ID              1   /* XXX this needs to be fixed */
+#define BGPSEC_MAX_SIG_LENGTH       128 /* XXX this needs to be fixed */
+#define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be fixed */
+
+#define BGPSEC_SAFI_UNICAST_FORWARD   1 /* RFC 4760, Multi-Proto Ext. for BGP4 */
+#define BGPSEC_SAFI_MULTICAST_FORWARD 2 /* RFC 4760, Multi-Proto Ext. for BGP4 */
+
 
 extern struct linpool *bgp_linpool;
 

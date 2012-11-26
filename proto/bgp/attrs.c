@@ -259,80 +259,99 @@ bgp_format_cluster_list(eattr *a, byte *buf, int buflen)
   /* Truncates cluster lists larger than buflen, probably not a problem */
   int_set_format(a->u.ptr, 0, -1, buf, buflen);
 }
-static int
-bgpsec_get_algo_sig_length(byte algo_id)
-{
-  if (BGPSEC_ALGO_ID == algo_id) {
-    return BGPSEC_ALGO_SIG_LENGTH;
-  }
 
-  return 0;
-}
 
+/* Parse bgpsec attr and make sure that it is encoded at a minimum
+   level of properly.  I.e., check that the size and lengths of its
+   parts are in an acceptable range. */
 static int
 bgpsec_decode_attr(struct bgp_proto *p, byte **buf, int *len)
 {
-  static struct bgpsec_sig_attr  bsec;
-  /* clear out any previously used static space */
-  bzero(&bsec, sizeof(struct bgpsec_sig_attr));
   byte *bptr     = *buf;
   int sigblock   = 0;
   int sigsegment = 0;
 
-  /* is it long enough to have a minimal valid bgpseg_path_attr */
-  /* 13 = 8 attr + 3 sig-list-blk min + 2 (< sig-seg min), assume >=1 sigseg */
-  if ( *len < 13 ) {
+  /* Is it long enough to have a minimal valid bgpseg_path_attr */
+  /* 40 = 4 hdr + 8 sec-path + 2 add-info + 3 sig-blk min + 23 
+   * (23 < sig-seg min), assume >=1 sigseg */
+  if ( *len < 40 )
+    {
     return IGNORE;
-  }
-  
-  bsec.expire_time = get_u64(bptr);  bptr+=8;
-  
-  byte algo_id = *bptr++;
-  int algo_sig_length = bgpsec_get_algo_sig_length(algo_id);
-  if (0 >= algo_sig_length) 
-    { 
-      /* return err unknown sig algo; */
     }
-  bsec.sig_list_blocks[sigblock].sig_list_block_length = get_u16(bptr);  bptr+=2;
+  
+  u16 secpath_len = get_u16(bptr);   bptr+=2;
+  
+  /* each secure path segment is 6 octets long */
+  if ( ( (secpath_len % 6) != 0 ) || ((secpath_len + 27) > *len) ) 
+    {
+      log(L_WARN, "bgpsec_decode: bad secure path length, ignoring");
+      /* xxx */
+      /* return errr bad length */
+      return IGNORE;
+    }
 
-  /* XXX check time */
+  bptr+=secpath_len; 
 
-  /* while signature-list blocks */
-  /* 5 = 3 sig-list-blk min + 2 (< sig-seg min), assume >=1 sigseg */
-  while ( bptr < ((*buf)+(*len)-5) ) {
+  byte info_type = *bptr++;
+  byte  info_len = *bptr++;
+  /* xxx only accept null info value and zero length for now */
+  if ( (info_type != 0) || (info_len != 0) )
+    {
+      log(L_WARN, "bgpsec_decode: bad additional info/length, ignoring");
+      /* xxx */
+      /* return errr bad length */
+      return IGNORE;
+    }
 
-    /* while for signature segments */
-    /* 13 = 8 attr + 3 sig-list-blk min + 2 (< sig-seg min), assume >=1 sigseg */
-    while ( bptr < ( (*buf) + 13 + 
-		     bsec.sig_list_blocks[sigblock].sig_list_block_length ) )
-      {
-	if ( (sigsegment + 1) > BGPSEC_SIGSEGMENT_ARRAY_LENGTH )
-	  {
-	    /* return errr beyond max sigsegments */
-	  }
-	bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].pcount = *bptr++;
-	bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length
-	  = *bptr++;
-	if ( bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length 
-	     > BGPSEC_MAX_KEY_ID_LENGTH )
-	  {
-	    /* return errr beyond max key id length */
-	  }
-	memcpy(bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id,
-	       bptr, 
-	       bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length);
-	bptr += bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].subject_key_id_length;
-	memcpy(bsec.sig_list_blocks[sigblock].sig_segments[sigsegment].signature,
-	       bptr, algo_sig_length);
-	bptr += algo_sig_length;
-	sigsegment++;
-	bsec.sig_list_blocks[sigblock].number_of_sig_segments = sigsegment;
-      }  /* while for signature segmennts */
-  }   /* while signature-list blocks */
+  /* while should end when bptr == (*buf + *len) or there is an error */
+  while ( (*buf + *len) > bptr ) 
+    {
+      byte algo_id = *bptr++;
+      /* check algorithm signature ID, we only support one algo. ID
+	 currently */
+      if (BGPSEC_ALGO_ID != algo_id) 
+	{
+	  log(L_ERR, "bgpsec_decode: Uknown Algorithm ID, ignoring");
+	  /* XXX return err unknown sig algo? only if there is no
+	   * other known sig algo (e.g.. two sig blocks); */
+	  return IGNORE;
+	}
 
-  *len = sizeof(struct bgpsec_sig_attr);
-  *buf = (byte *)&bsec;
+      u16 sig_list_block_length = get_u16(bptr);    bptr+=2;
+      byte *sblock_end = bptr + sig_list_block_length;
 
+      if ( sblock_end > (*buf + *len) )
+	{
+	  log(L_WARN, "bgpsec_decode: bad signature block length, ignoring");
+	  /* xxx */
+	  /* return errr bad length */
+	  return IGNORE;
+	}
+
+      /* while should end when (bptr == sblock_end) or there is an error */
+      while ( bptr < sblock_end )
+	{
+	  bptr += BGPSEC_SKI_LENGTH;
+	  u16 sig_len = get_u16(bptr); 
+	  bptr = bptr + 2 + sig_len;
+	  if (bptr > sblock_end) 
+	    {
+	      log(L_WARN, "bgpsec_decode: bad sig. segment length, ignoring");
+	      /* xxx */
+	      /* return errr bad length */
+	      return IGNORE;
+	    }
+	}
+
+      if (bptr > (*buf + *len))
+	{
+	  log(L_WARN, "bgpsec_decode: bad signature block length, ignoring");
+	  /* xxx */
+	  /* return errr bad length */
+	  return IGNORE;
+	}
+    }
+	
   return 0;
 }
 
@@ -542,10 +561,8 @@ bgp_get_attr_len(eattr *a)
 #define ADVANCE(w, r, l) do { r -= l; w += l; } while (0)
 
 
-/* For the originating AS, add a bgpsec signature attribute to the
- * update */
-/* Otherwise, add an additional signature to the bgpsec signature
- * attribute */
+/* For the originating AS, add a bgpsec signature attribute to the update */
+/* Otherwise, add an additional signature to the bgpsec signature attribute */
 /* Returns length of attribute added, 0 if no attribute added, and < 0
    on error */
 unsigned int 
@@ -561,217 +578,246 @@ bgpsec_sign(struct  bgp_conn  *conn,
       return 0;
     }
 	
-  byte    *start = w;
+  byte *start = w;
 
-  static u8 sigbuff[BGPSEC_MAX_ALGO_SIG_LENGTH];
-  /* hashbuff must also be >= 26, but this should be */
-  static u8 hashbuff[BGPSEC_MAX_ALGO_SIG_LENGTH + 4];
+  static u8 sigbuff[BGPSEC_MAX_SIG_LENGTH];
+  /* hashbuff must also be >= 24, but this should be >= 24 */
+  static u8 hashbuff[BGPSEC_MAX_SIG_LENGTH + 10];
+
+  /* clean out any previous data in buffers */
+  bzero(sigbuff, BGPSEC_MAX_SIG_LENGTH);
+  bzero(hashbuff, (BGPSEC_MAX_SIG_LENGTH + 10));
 
   eattr *patha   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_AS_PATH));
   eattr *bgpsa   = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
 
-  /* clean out any previous data */
-  bzero(sigbuff, BGPSEC_MAX_ALGO_SIG_LENGTH);
-  bzero(hashbuff, (BGPSEC_MAX_ALGO_SIG_LENGTH + 4));
+  u8 *pathptr    = NULL;
+  int plen       = 0;
+  int sig_length = 0;
 
-  /* XXX if this is a bgpsec connection and no bgpsec attribute, is
-   * this okay?, yes for starting AS */
-  /* if as_path attribute doesn't exist, done */
-  if ( patha == NULL )
+  /* if as_path attribute exists */
+  if ( patha != NULL )
     {
-      log(L_WARN "\tbpgsec_sign: No AS_PATH?");
-      return -1;
+      pathptr = (u8 *)&(patha->u.ptr->data);
+      plen    = pathptr[1];
+
+      if ( pathptr[0] != AS_PATH_SEQUENCE )
+	{
+	  /* must be as_sequence, as_set not allowed for bgpsec */
+	  return -1;
+	}  
+      pathptr += 2;
     }
 
-  u8 *pathptr = (u8 *)&(patha->u.ptr->data);
-  int plen    = pathptr[1];
+  u8  pcount           = 0;
+  u32 ras              = conn->bgp->remote_as;
+  u32 las              = conn->bgp->local_as;
+  u16 sig_segments_len = 0;
 
-  if ( pathptr[0] != AS_PATH_SEQUENCE )
-    {
-      /* must be as_sequence, as_set not allowed for bgpsec */
-      return -1;
-    }  
-
-  pathptr += 2;
-
-  u8  pcount;
-  u32 ras             = conn->bgp->remote_as;
-  u8  ski_len         = strlen(conn->bgp->cf->bgpsec_ski);
-  u16 sig_segment_len = 2 + BGPSEC_ALGO_SIG_LENGTH + ski_len;
-  u64 exp_time        = 0;  /* XXX get correct time */
-  u8  algo_id         = BGPSEC_ALGO_ID;
-
-  /* are we the original AS for the NLRI */
-  if ( conn->bgp->local_as == get_u32(pathptr + ((plen-1)*4)) &&
-       conn->bgp->local_as == get_u32(pathptr) )
+  /* if this is the original AS for the NLRI */
+  if ( (pathptr == NULL) || 
+       ( conn->bgp->local_as == get_u32(pathptr + ((plen-1)*4)) &&
+	 conn->bgp->local_as == get_u32(pathptr) ) )
     {
       if ( bgpsa != NULL ) 
 	{
 	  log(L_ERR
-	      "\tbpgsec_sign: bpgsec attr shouldn't exist at first path AS");
+	      "\tbgpsec_sign: bgpsec attr shouldn't exist at first path AS");
 	  return -1;
 	}
 
-      pcount       = plen;
-      u32 las      = conn->bgp->local_as;
+      pcount  = plen;
 
       struct bgp_prefix *px = 
 	SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
       if ( px == NULL )
 	{
 	  /* XXX bad prefix? */
-	  log(L_ERR "\tbpgsec_sign: bad prefix found");
+	  log(L_ERR "\tbgpsec_sign: bad prefix found");
 	  return -1;
 	}	  
       u8       pxlen = px->n.pxlen;
       int   px_bytes = (pxlen+7) / 8;
       ip_addr prefix = px->n.prefix;
       ipa_hton(prefix);
-      DBG("\tbpgsec_sign: using NLRI %I/%d\n", px->n.prefix, pxlen);
+      DBG("\tbgpsec_sign: using NLRI %I/%d\n", px->n.prefix, pxlen);
 
       /* create data to sign */
-      memcpy(hashbuff,     &exp_time, 8); /* XXX fix */
-      memcpy((hashbuff+8),  &ras, 4);
-      memcpy((hashbuff+12), &las, 4);
-      memcpy((hashbuff+16), &algo_id, 1);
-      memcpy((hashbuff+17), &pxlen, 1);
-      memcpy((hashbuff+18), &prefix, px_bytes );
-      /* sign */
-      int siglength =
-	bgpsec_sign_data_with_ascii_ski(hashbuff, (18 + px_bytes), 
-					conn->bgp->cf->bgpsec_ski,
-					strlen(conn->bgp->cf->bgpsec_ski),
-					algo_id, 
-					sigbuff, BGPSEC_ALGO_SIG_LENGTH);
+      memcpy((hashbuff),   &ras, 4);
+      memcpy((hashbuff+4), &las, 4);
+      /* pcount of 1, and no confed flag handling yet xxx */
+      hashbuff[8] = 0x01;
+      hashbuff[9] = 0x00;
+      /* info type, len, val, all 0 */
+      hashbuff[10] = 0x00;
+      hashbuff[11] = 0x00;
+      hashbuff[12] = BGPSEC_ALGO_ID;
+      hashbuff[13] = pxlen;
+      memcpy((hashbuff+14), &prefix, px_bytes);
 
-      if ( 1 >= siglength )
+      /* sign */
+      sig_length = bgpsec_sign_data_with_ascii_ski(hashbuff, (13 + px_bytes), 
+						   conn->bgp->cf->bgpsec_ski,
+						   strlen(conn->bgp->cf->bgpsec_ski),
+						   BGPSEC_ALGO_ID, 
+						   sigbuff, BGPSEC_MAX_SIG_LENGTH);
+
+      if ( 1 >= sig_length )
 	{
 	  log(L_ERR "\tbpgsec_sign:o: signing failed");
 	  return -1;
 	}    
 
+      sig_segments_len = 2 + sig_length + BGPSEC_SKI_LENGTH;
+
       /* just single sig block XXX */
       /* is there enough room for adding  a new signature */
-      /* 15 = 4 attr header + 11 list block size without sig segments */
-      if ( remains < (sig_segment_len + 15) )
+      /* 17 = 4 attr header + 13 sig block size without sig segments */
+      if ( remains < (sig_segments_len + 17) )
 	{
 	  log(L_ERR "\tbpgsec_sign: not enough room for bpgsec attr: %d",
-	      (sig_segment_len + 15) );
+	      (sig_segments_len + 17) );
 	  return -1;
 	}
 
+
+
       /* add new bgpsec sig attr */
-      /* 11 list block size without sig segments */
+      /* 13 list block size without sig segments */
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
-				   (sig_segment_len + 11) );
+				   (sig_segments_len + 13) );
+
       ADVANCE(w, remains, rv);
-      put_u64(w, exp_time);
-      ADVANCE(w, remains, 8);
-      memcpy(w, &algo_id, 1);
-      ADVANCE(w, remains, 1);
-      put_u16(w, sig_segment_len);
+
+      /* secure path */
+      put_u16(w, 6);
       ADVANCE(w, remains, 2);
-      memcpy(w, &pcount, 1);
+      memcpy(w, &las, 4);
+      ADVANCE(w, remains, 4);
+      /* pcount of 1, and no confed flag handling yet xxx */
+      *w = 0x01;
       ADVANCE(w, remains, 1);
-      memcpy(w, &ski_len, 1);
+      *w = 0x00;
       ADVANCE(w, remains, 1);
-      memcpy(w, conn->bgp->cf->bgpsec_ski, ski_len);
-      ADVANCE(w, remains, ski_len);
-      memcpy(w, sigbuff, BGPSEC_ALGO_SIG_LENGTH);
-      ADVANCE(w, remains, BGPSEC_ALGO_SIG_LENGTH);
-    }
-  /* else we are not the orignial AS, add signature to list */
+
+      /* additional info: currently only NULL values supported */
+      put_u16(w, 0);
+      ADVANCE(w, remains, 2);
+      
+      /* signature block(s) xxx for (s) */
+      *w = BGPSEC_ALGO_ID;
+      ADVANCE(w, remains, 1);
+      put_u16(w, sig_segments_len);
+      ADVANCE(w, remains, 2);
+
+      memcpy(w, conn->bgp->cf->bgpsec_ski, BGPSEC_SKI_LENGTH);
+      ADVANCE(w, remains,  BGPSEC_SKI_LENGTH);
+      put_u16(w, sig_length);
+      ADVANCE(w, remains, 2);
+      memcpy(w, sigbuff, sig_length);
+      ADVANCE(w, remains, sig_length);
+    }  /* if this is the original AS for the NLRI */
+  /* else we are not the original AS */
+  /*  copy and add secure path, add info, add signature to signature
+      segment list */
   else 
     {
       if ( bgpsa == NULL ) 
 	{
-	  log(L_ERR "\tbpgsec_sign: error: bpgsec attr does not exist");
+	  log(L_ERR "\tbgpsec_sign: error: bgpsec attr does not exist");
 	  return -1;
 	}
+
       /* figure out pcount */
       u8 pcount = 0;
-      while ( conn->bgp->local_as == get_u32(pathptr) )
+      if ( NULL != pathptr ) 
 	{
-	  pcount++;
-	  pathptr += 4;
+	  while ( conn->bgp->local_as == get_u32(pathptr) )
+	    {
+	      pcount++;
+	      pathptr += 4;
+	    }
 	}
+      else { pcount = 1; }
 
-      /* XXX need to handle 2 signature list blocks */
-      struct bgpsec_sig_attr *sigattr =
-	(struct bgpsec_sig_attr *)&(bgpsa->u.ptr->data);
-      struct sig_list_block   *sblock =
-	(struct sig_list_block *)&(sigattr->sig_list_blocks[0]);
-  
-      u16 new_sig_block_length = sblock->sig_list_block_length +
-	sig_segment_len;
+      /* get secure path info */
+      byte *secpath_p = (byte *)&(bgpsa->u.ptr->data);
+      u16 secpath_len = get_u16(secpath_p);   secpath_p+=2;
 
-      /* just single sig block XXX */
-      /* is there enough room for adding  a new signature */
-      /* 15 = 4 attr header + 11 list block size without sig segments */
-      if ( remains < (15 + new_sig_block_length) )
-	{
-	  log(L_ERR "\tbpgsec_sign: not enough room for bpgsec attr+: %d",
-	      (15 + new_sig_block_length) );
-	  return -1;
-	}
+      /* get info info */
+      byte   *info_p = secpath_p + secpath_len;
+      byte info_type = *info_p;
+      byte  info_len = *(info_p + 1);
 
+      /* skip to signature block, also skipping algo ID, */
+      /* XXX, only handling a single signature block, should handle 1 or 2 */
+      byte *sigblock_p = info_p + 2 + info_len + 1;
+
+      u16 old_sig_segments_len = get_u16(sigblock_p);  sigblock_p+=2;
+      byte *sig_p = sigblock_p + BGPSEC_SKI_LENGTH;
+      u16 old_sig_len = get_u16(sig_p); sig_p+=2;
+      
       /* create buffer to sign */
-      memcpy(hashbuff, sblock->sig_segments[0].signature,
-	     BGPSEC_ALGO_SIG_LENGTH);
-      memcpy((hashbuff+BGPSEC_ALGO_SIG_LENGTH), &ras, 4);
+      memcpy((hashbuff),   &ras, 4);
+      memcpy((hashbuff+4), &las, 4);
+      /* pcount */
+      hashbuff[8] = pcount;
+      /* no confed flag handling yet xxx */
+      hashbuff[9] = 0x00;
+      /* most recent sig field */
+      memcpy((hashbuff+10), sig_p, old_sig_len);
       
       /* sign */
-      int siglength =
-	bgpsec_sign_data_with_ascii_ski(hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4), 
-					conn->bgp->cf->bgpsec_ski,
-					strlen(conn->bgp->cf->bgpsec_ski),
-					algo_id,
-					sigbuff, BGPSEC_ALGO_SIG_LENGTH);
-      if ( 1 >= siglength )
+      sig_length = bgpsec_sign_data_with_ascii_ski(hashbuff, (old_sig_len + 10), 
+						   conn->bgp->cf->bgpsec_ski,
+						   BGPSEC_SKI_LENGTH,
+						   BGPSEC_ALGO_ID,
+						   sigbuff, BGPSEC_MAX_SIG_LENGTH);
+      if ( 1 >= sig_length )
 	{
-	  log(L_ERR "\tbpgsec_sign:no: signing failed+");
+	  log(L_ERR "\tbgpsec_sign:no: signing failed+");
 	  return -1;
 	}    
 
-      /* add bgpsec sig attr */
-      /* 11 list block size without sig segments*/
+      sig_segments_len = old_sig_segments_len + sig_length + BGPSEC_SKI_LENGTH + 2;
+
+      /* add new bgpsec sig attr */
+      /* 13 = list block size without sig segments */
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
-				   (11 + new_sig_block_length) );
-      ADVANCE(w, remains, rv);
-      put_u64(w, exp_time);
-      ADVANCE(w, remains, 8);
-      memcpy(w, &algo_id, 1);
-      ADVANCE(w, remains, 1);
-      put_u16(w, new_sig_block_length);
+				   (sig_segments_len + 13) );
+      
+      /* secure path */
+      put_u16(w, (secpath_len + 6));
       ADVANCE(w, remains, 2);
-
-      /* add the new sig segment */
-      memcpy(w, &pcount, 1);
+      /* add local AS, pcount and flags, no confed flag handling yet xxx */
+      memcpy(w, &las, 4);
+      ADVANCE(w, remains, 4);
+      *w = pcount;
       ADVANCE(w, remains, 1);
-      memcpy(w, &ski_len, 1);
+      *w = 0x00;
       ADVANCE(w, remains, 1);
-      memcpy(w, conn->bgp->cf->bgpsec_ski, ski_len);
-      ADVANCE(w, remains, ski_len);
-      memcpy(w, sigbuff, BGPSEC_ALGO_SIG_LENGTH);
-      ADVANCE(w, remains, BGPSEC_ALGO_SIG_LENGTH);
+      /* add old secure path */
+      memcpy(w, secpath_p, secpath_len);
+      ADVANCE(w, remains, secpath_len);
+      
+      /* add info */
+      memcpy(w, info_p, (2 + info_len));
+      ADVANCE(w, remains, (2 + info_len));
+      
+      /* add sigblock */
+      /* new sig segment */
+      memcpy(w, conn->bgp->cf->bgpsec_ski, BGPSEC_SKI_LENGTH);
+      ADVANCE(w, remains, BGPSEC_SKI_LENGTH);
+      memcpy(w, &sig_length, 2);
+      ADVANCE(w, remains, 2);
+      memcpy(w, sigbuff, sig_length);
+      ADVANCE(w, remains, sig_length);
 
-      /* add the old sig segments */
-      int cseg = 0;
-      while ( cseg < sblock->number_of_sig_segments ) {
-      memcpy(w, &sig_segment_len, 2);
-	memcpy(w, &sblock->sig_segments[cseg].pcount, 1);
-	ADVANCE(w, remains, 1);
-	memcpy(w, &ski_len, 1);
-	memcpy(w, &sblock->sig_segments[cseg].subject_key_id_length, 1);
-	ADVANCE(w, remains, 1);
-	memcpy(w, &sblock->sig_segments[cseg].subject_key_id, 
-	       sblock->sig_segments[cseg].subject_key_id_length);
-	ADVANCE(w, remains, sblock->sig_segments[cseg].subject_key_id_length);
-	memcpy(w, &sblock->sig_segments[cseg].signature, BGPSEC_ALGO_SIG_LENGTH);
-	ADVANCE(w, remains, BGPSEC_ALGO_SIG_LENGTH);
-      }	
+      /* add old sig segments */
+      memcpy(w, sigblock_p, old_sig_segments_len);
+      ADVANCE(w, remains, old_sig_segments_len);
 
-    }
+    }  /* else we are not the original AS */
 
   return (w - start);
 } /* int bgpsec_sign */
@@ -808,6 +854,12 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
       if (code == BA_NEXT_HOP)
 	continue;
 #endif
+
+      /* Do not send AS_PATH for BGPSEC connections, only used internally. */
+      if ((code == BA_AS_PATH) && (p->conn->bgpsec))
+	{
+	  continue;
+	}
 
       /* When AS4-aware BGP speaker is talking to non-AS4-aware BGP speaker,
        * we have to convert our 4B AS_PATH to 2B AS_PATH and send our AS_PATH 
@@ -1937,6 +1989,10 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len, struct lin
 	    }
 	  else if (code == BA_AS_PATH)
 	    {
+	      /* BGPSEC connections should not have a BA_AS_PATH attributes */
+	      /* XXX need a better error code here */
+	      if ( conn->bgpsec )
+		{ errcode = 99; goto err; }
 	      /* Special case as it might also trim the attribute */
 	      if (validate_as_path(bgp, z, &l) < 0)
 		{ errcode = 11; goto err; }
@@ -1945,8 +2001,9 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len, struct lin
 	    {
 	      /* Special case, attribute must be parsed and
 	       * cryptographically checked.  
-               * Note: z and l are changed on succes to point to a
-	       * static array of values copied below to ad->data*/
+               * XXX changing Note: z and l are changed on succes to
+	       * point to a static array of values copied below to
+	       * ad->data*/
 	      if ( bgpsec_decode_attr(bgp, &z, &l) < 0 )
 		{ errcode = 12; goto err; }
 	    }

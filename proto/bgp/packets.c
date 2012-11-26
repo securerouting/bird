@@ -215,7 +215,7 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
     cap = bgp_put_cap_as4(conn, cap);
 
   /* xxx */
-  BGP_TRACE(D_PACKETS, "Add BGPSec capability? \'%d\', vers \'%d\'",
+  BGP_TRACE(D_PACKETS, "Add BGPSec capability? \'%d\', v%d",
             p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
   if (p->cf->enable_bgpsec)
     cap = bgp_put_cap_bgpsec(conn, cap);
@@ -395,7 +395,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  rem_stored = remains;
 	  w_stored = w;
 
-	  /* XXX need buck for bpgesec NLRI prefix info */
+	  /* XXX need buck for bpgsec NLRI prefix info */
 	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048, buck);
 	  if (size < 0)
 	    {
@@ -948,101 +948,173 @@ bgp_set_next_hop(struct bgp_proto *p, rta *a)
   return 1;
 }
 
+
+/* Creates an as_path from the bgpsec attribute secure_path
+   information and adds it to the rta struct. */
+/* The created as_path is used for local route determination and is
+   removed before sending out bgpsec updates */
+int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpool *pool)
+{  
+  ea_list *ea;
+  struct adata *ad;
+  byte *secp = secpath_p;
+
+  /* xxx how to handle memory allocation error? */
+  ea = lp_alloc(pool, sizeof(ea_list) + sizeof(eattr));
+  ea->next  = route->eattrs;
+  route->eattrs = ea;
+
+  ea->flags = 0;
+  ea->count = 1;
+  ea->attrs[0].id    = EA_CODE(EAP_BGP, BA_AS_PATH);
+  ea->attrs[0].flags = BAF_TRANSITIVE;
+  ea->attrs[0].type  = EAF_TYPE_AS_PATH;
+
+  byte aspath_len = secp_len / 6;
+  int  pattr_len  = 2 + (4*aspath_len);
+
+  ad = lp_alloc(pool, sizeof(struct adata) + pattr_len);
+  ea->attrs[0].u.ptr = ad;
+  ad->length = pattr_len;
+
+  byte *asp = ad->data;
+  *asp++ = AS_PATH_SEQUENCE;
+  *asp++ = aspath_len;
+
+  while ( (asp < (ad->data + pattr_len)) && (secp < (secpath_p + secp_len)) )
+    {
+      memcpy(asp, secp, 4);
+      asp  += 4;
+      secp += 6;
+    }
+
+  return 1;
+  
+} /* int bgpsec_create_aspath() */
+
+
+/* authenticate a bgpsec attribute.  Return 1 on succes and 0 on
+   failuer */
 int bgpsec_authenticate(struct  bgp_conn *conn,
 			        rta      *route,
 			        ip_addr  prefix, 
-			        int      pxlen)
+                                int      pxlen,
+			struct  linpool  *pool)
 {
-  eattr   *patha   = ea_find(route->eattrs, 
-			     EA_CODE(EAP_BGP, BA_AS_PATH));
-  eattr   *bpgsa   = ea_find(route->eattrs, 
-			     EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
-  static u8 hashbuff[BGPSEC_MAX_ALGO_SIG_LENGTH + 4];
+  eattr   *bgpsa = ea_find(route->eattrs, 
+			   EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
+  /* hash length, origination < non-orig : ~22+ octets < 10+last
+     signature length */
+  static u8 hashbuff[BGPSEC_MAX_SIG_LENGTH + 10];
 
   /* clean out any previous data */
-  bzero(hashbuff, (BGPSEC_MAX_ALGO_SIG_LENGTH + 4));
+  bzero(hashbuff, (BGPSEC_MAX_SIG_LENGTH + 10));
 
-  /* check existence of as path and bgpsec signature attributes */
-  if ( patha == NULL || bpgsa == NULL ) 
+  /* check existence of bgpsec signature attribute */
+  if ( bgpsa == NULL ) 
     {
       /* may depend on configuration (i.e. require bgpsec or not) */
       return 0;
     }
 
-  /* XXX need to handle 2 signature list blocks */
-  struct bgpsec_sig_attr *sigattr = 
-    (struct bgpsec_sig_attr *)&(bpgsa->u.ptr->data);
-  struct sig_list_block  *sblock =
-    (struct sig_list_block  *)&(sigattr->sig_list_blocks[0]);
-  
-  int  slen    = patha->u.ptr->length;
-  u8  *pathptr = (u8 *)&(patha->u.ptr->data);
-  int  pa_len  = pathptr[1];
-  int  cseg    = 0;
+  unsigned int bgpsec_len = bgpsa->u.ptr->length;
+  byte          *bgpsec_p = (byte *)&(bgpsa->u.ptr->data);
+  u16         secpath_len = get_u16(bgpsec_p);   
+  byte         *secpath_p = bgpsec_p + 2;
+  byte    *siglistblock_p = secpath_p + secpath_len;
 
-  if ( pathptr[0] != AS_PATH_SEQUENCE )
+  /* create as_path for route selection */
+  if ( 0 < bgpsec_create_aspath(route, secpath_p, secpath_len, pool) ) 
     {
-      /* must be as_sequence, as_set not allowed for bgpsec */
+      /* xxx currently should never happen, get rid of check? */
       return 0;
-    }  
+    }
 
-  pathptr += 2;
+  /* currently only handle additional info type of null, zero length,
+     checked in decode */
+  byte*   info_p = siglistblock_p++;
+  byte  info_len = *siglistblock_p++;
 
-  /* check all sig segments up to the last one */
-  while ( (pa_len > 0) && (slen) && 
-	  (cseg < (sblock->number_of_sig_segments-1)) )
+  byte *sigblock_p = siglistblock_p;
+
+  u32 target_as = conn->bgp->local_as;
+
+  /* XXX need to handle 2 signature list blocks, (rememeber to reset
+     sec_path) */
+
+  /* check all sig segments */
+  while ( sigblock_p < (bgpsec_p + bgpsec_len) )
     {
-      /*      u32 as = get_u32(pathptr); */
-      memcpy(hashbuff, sblock->sig_segments[cseg].signature, 
-	     BGPSEC_ALGO_SIG_LENGTH);
-      memcpy((hashbuff + BGPSEC_ALGO_SIG_LENGTH), pathptr, 4);
+      byte      algo_id = *sigblock_p++;
+      u16  sigblock_len = get_u16(sigblock_p);
+      byte       *sig_p = sigblock_p + 2;
       
-      if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_bin_ski
-	   (hashbuff, (BGPSEC_ALGO_SIG_LENGTH + 4),
-	    sblock->sig_segments[cseg].subject_key_id, 
-	    sblock->sig_segments[cseg].subject_key_id_length,
-	    sblock->algo_suite_id,
-	    sblock->sig_segments[cseg].signature,
-	    BGPSEC_ALGO_SIG_LENGTH) )
+      while ( (sig_p < (sigblock_p + 2 + sigblock_len))  &&
+	      (secpath_p < (bgpsec_p + 2 + secpath_len)) )
 	{
-	  /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
-	                BGPSEC_SIGNATURE_MISMATCH */
-	  return 0;
+	  u16 sig_len = get_u16(sig_p+BGPSEC_SKI_LENGTH);
+	  
+	  /* If we are NOT at the last sig segment, create and check
+	   * regular hash */
+	  if ( (sig_p + BGPSEC_SKI_LENGTH + 2 + sig_len) < 
+	        (sigblock_p + 2 + sigblock_len) )
+	    {
+	      byte* recent_sig = sig_p + sig_len + 
+		(2 * (BGPSEC_SKI_LENGTH + 2) );
+	      u16 recent_sig_len = get_u16(recent_sig - 2);
+	      
+	      memcpy(hashbuff, &target_as, 4);
+	      /* signer's AS, pcount, and flags */
+	      memcpy(hashbuff+4, secpath_p, 6);
+	      memcpy(hashbuff+10, recent_sig, recent_sig_len);
+
+	      if ( BGPSEC_SIGNATURE_MATCH != 
+		   bgpsec_verify_signature_with_bin_ski
+		   (hashbuff, (recent_sig_len + 10),
+		    sig_p, BGPSEC_SKI_LENGTH,
+		    algo_id,
+		    (sig_p + BGPSEC_SKI_LENGTH + 2), sig_len) 
+		 )
+		{
+		  /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
+		     BGPSEC_SIGNATURE_MISMATCH */
+		  return 0;
+		}
+	      target_as = get_u32(secpath_p);
+	    }
+          /* else we are at the last sig segment, create and check
+	   * origination hash */
+	  else 
+	    {
+	      memcpy(hashbuff, &target_as, 4);
+	      /* signer's AS, pcount, and flags */
+	      memcpy((hashbuff+4),   secpath_p, 6);
+	      /* info type, len, (0 len value) */
+	      /* currently, only support for null type, zero length
+		 info vals, put two zero value bytes in hashbuff*/
+	      memcpy((hashbuff+10),  info_p, 2);
+	      memcpy((hashbuff+12), &algo_id, 1);
+	      memcpy((hashbuff+13), &pxlen, 1);
+	      int prefix_bytes = (pxlen + 7) / 8;
+	      memcpy((hashbuff+14), &prefix, prefix_bytes);
+
+	      if ( BGPSEC_SIGNATURE_MATCH != 
+		   bgpsec_verify_signature_with_bin_ski
+		   (hashbuff, (14 + prefix_bytes),
+		    sig_p, BGPSEC_SKI_LENGTH,
+		    algo_id,
+		    (sig_p + BGPSEC_SKI_LENGTH + 2), sig_len)
+		 )
+		{
+		  /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
+		     BGPSEC_SIGNATURE_MISMATCH */
+		  return 0;
+		}
+	    } 
+	  secpath_p+=6;
+	  sig_p = sig_p + BGPSEC_SKI_LENGTH + 2 + sig_len;
 	}
-      cseg++;
-      pa_len  = pa_len - sblock->sig_segments[cseg].pcount;
-      pathptr = pathptr + (sblock->sig_segments[cseg].pcount * 4);
-    }
-
-  /* are we in the correct place for the last authentication */
-  if ( (cseg != (sblock->number_of_sig_segments-1)) || 
-       (pa_len >= 1) )
-    {
-	  /* XXX differentiate error msgs? */
-      return 0;
-    }
-
-  /* authenticate origin AS */
-  memcpy(hashbuff, (pathptr-4), 4);
-  memcpy((hashbuff + 4), pathptr, 4);
-  memcpy((hashbuff + 8), &sblock->sig_segments[cseg].pcount, 1);
-  memcpy((hashbuff + 9), &sblock->algo_suite_id, 1);
-  memcpy((hashbuff + 10), &sigattr->expire_time, 8);
-  memcpy((hashbuff + 18), &pxlen, 1);
-  int prefix_bytes = (pxlen + 7) / 8;
-  memcpy((hashbuff + 19), &prefix, prefix_bytes);
-
-  if ( BGPSEC_SIGNATURE_MATCH != bgpsec_verify_signature_with_bin_ski
-       (hashbuff, (19 + prefix_bytes),
-	sblock->sig_segments[cseg].subject_key_id, 
-	sblock->sig_segments[cseg].subject_key_id_length,
-	sblock->algo_suite_id,
-	sblock->sig_segments[cseg].signature,
-	BGPSEC_ALGO_SIG_LENGTH) )
-    {
-      /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
-	 BGPSEC_SIGNATURE_MISMATCH */
-      return 0;
+      sigblock_p = sigblock_p + sigblock_len;
     }
   
   return 1;
@@ -1090,7 +1162,8 @@ bgp_do_rx_update(struct bgp_conn *conn,
 
       if (conn->bgpsec && conn->peer_bgpsec_support)
 	{
-	if (!bgpsec_authenticate(conn, a0, prefix, pxlen))
+
+	  if ( !bgpsec_authenticate(conn, a0, prefix, pxlen, bgp_linpool) )
 	  {
 	    /* XXX correct error values */
 	    err = 1;
@@ -1216,7 +1289,7 @@ bgp_do_rx_update(struct bgp_conn *conn,
 
 	  if (conn->bgpsec && conn->peer_bgpsec_support)
 	    {
-	      if (!bgpsec_authenticate(conn, a0, prefix, pxlen))
+	      if ( !bgpsec_authenticate(conn, a0, prefix, pxlen, bgp_linpool) )
 		{
 		  /* XXX correct error values */
 		  err = 1;
