@@ -39,6 +39,8 @@ struct bgp_config {
     /* XXX BGPSec XXX*/
   int enable_bgpsec;                    /* Whether neighbor should be a BGPSec peer */
   char *bgpsec_ski;                     /* local subject key id */
+  char *bgpsec_key_repo_path;           /* Path to the key repository */
+  int bgpsec_save_binary_keys;          /* Save a copy of the binary key */
 
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */

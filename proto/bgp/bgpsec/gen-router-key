@@ -1,9 +1,10 @@
 #!/usr/bin/perl
 
 use strict;
+use File::Path qw(mkpath);
 
 my %opts =
-    ('d' => 	  "keys",
+    ('d' => 	  "/usr/share/bird/bgpsec-keys",
      't' => 	  "prime256v1",
      's' =>       "sha256",
      'openssl' => "/usr/local/openssl-ecdsa/bin",
@@ -115,13 +116,39 @@ System("openssl x509 -$signatureAlgorithm -extfile $cnfFile -extensions bgpsec_r
 
 # move the files to their final destinations
 if ($finalPrivateKeyFile  =~ /%s/) {
-    rename($privateKeyFile, sprintf($finalPrivateKeyFile, $ski));
+    rename($privateKeyFile, getCertFileName($finalPrivateKeyFile, $ski));
 }
 if ($finalCsrFile  =~ /%s/) {
-    rename($csrFile, sprintf($finalCsrFile, $ski));
+    rename($csrFile, getCertFileName($finalCsrFile, $ski));
 }
 if ($finalPublicCertFile  =~ /%s/) {
-    rename($publicCertFile, sprintf($finalPublicCertFile, $ski));
+    rename($publicCertFile, getCertFileName($finalPublicCertFile, $ski));
+}
+
+sub getCertFileName {
+    my ($format, $ski) = @_;
+    if (length($ski) <= 6) {
+	# very silly short ski; put only in the root directory
+	return sprintf($format, $ski);
+    } else {
+	my $newfilename = $format;
+	$newfilename =~ s#%s#%s%s/%s%s%s%s/%s#g;
+
+	my @skiparts = split(//,$ski);
+	$ski =~ s/^.{6}//;
+	$newfilename = sprintf($newfilename,
+			       $skiparts[0], $skiparts[1], $skiparts[2],
+			       $skiparts[3], $skiparts[4], $skiparts[5],
+			       $ski);
+
+	my $dirname = $newfilename;
+	$dirname =~ s#/[^/]*$##;
+	if (! -d $dirname) {
+	    mkpath($dirname);
+	}
+	return $newfilename;
+    }
+
 }
 
 ######################################################################

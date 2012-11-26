@@ -1069,11 +1069,12 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
 	      memcpy(hashbuff+10, recent_sig, recent_sig_len);
 
 	      if ( BGPSEC_SIGNATURE_MATCH != 
-		   bgpsec_verify_signature_with_bin_ski
-		   (hashbuff, (recent_sig_len + 10),
-		    sig_p, BGPSEC_SKI_LENGTH,
-		    algo_id,
-		    (sig_p + BGPSEC_SKI_LENGTH + 2), sig_len) 
+		    bgpsec_verify_signature_with_bin_ski
+   		     (conn->bgp->cf,
+		      hashbuff, (recent_sig_len + 10),
+		      sig_p, BGPSEC_SKI_LENGTH,
+		      algo_id,
+		      (sig_p + BGPSEC_SKI_LENGTH + 2), sig_len)
 		 )
 		{
 		  /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
@@ -1100,10 +1101,11 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
 
 	      if ( BGPSEC_SIGNATURE_MATCH != 
 		   bgpsec_verify_signature_with_bin_ski
-		   (hashbuff, (14 + prefix_bytes),
-		    sig_p, BGPSEC_SKI_LENGTH,
-		    algo_id,
-		    (sig_p + BGPSEC_SKI_LENGTH + 2), sig_len)
+		     (conn->bgp->cf,
+		      hashbuff, (14 + prefix_bytes),
+		      sig_p, BGPSEC_SKI_LENGTH,
+		      algo_id,
+		      (sig_p + BGPSEC_SKI_LENGTH + 2), sig_len)
 		 )
 		{
 		  /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
@@ -1114,6 +1116,7 @@ int bgpsec_authenticate(struct  bgp_conn *conn,
 	  secpath_p+=6;
 	  sig_p = sig_p + BGPSEC_SKI_LENGTH + 2 + sig_len;
 	}
+
       sigblock_p = sigblock_p + sigblock_len;
     }
   

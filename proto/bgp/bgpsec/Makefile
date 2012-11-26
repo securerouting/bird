@@ -4,6 +4,9 @@ dir-name=proto/bgp/bgpsec
 
 include ../../../Rules
 
-tests: $(objs) tests.o
-	gcc -o $@ $(objs) tests.o $(LDFLAGS) $(LIBS)
+validate_tmp.o: ../../../../proto/bgp/bgpsec/validate.c
+	gcc -c $(CFLAGS) -DLOG_TO_STDERR -o $@ $<
+
+tests: tests.o validate_tmp.o
+	gcc -o $@ $^ bgpsec.o $(LDFLAGS) $(LIBS)
 
