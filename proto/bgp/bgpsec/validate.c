@@ -47,7 +47,7 @@ struct ec_key_st {
 #ifdef LOG_TO_STDERR
 #define ERRORMSG(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); } while(0);
 #else
-#define ERRORMSG(errmsg) do { log(L_ERR, "Error: %s\n", errmsg); } while(0);
+#define ERRORMSG(errmsg) do { log(L_ERR "Error: %s\n", errmsg); } while(0);
 #endif
 
 #define ERROR(errmsg) do { ERRORMSG(errmsg); return(BGPSEC_FAILURE); } while(0);
@@ -573,8 +573,8 @@ int bgpsec_load_key_from_bin_ski(struct bgp_config *conf,
     
     cp = ascii_ski_buf;
     for(i = 0; i < ski_len; i++) {
-        sprintf(cp, "%02x", ski[i]);
-        cp += 2;
+      sprintf(cp, "%02X", (byte)ski[i]);
+      cp += 2;
     }
 
     /* null terminate it */

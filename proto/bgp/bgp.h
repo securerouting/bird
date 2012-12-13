@@ -85,7 +85,6 @@ struct bgp_conn {
   int peer_as4_support;			/* Peer supports 4B AS numbers [RFC4893] */
   int peer_refresh_support;		/* Peer supports route refresh [RFC2918] */
     /* XXX BGPSec XXX*/
-  int bgpsec;                  /* Connection is BGPSec connection*/
   int peer_bgpsec_support;     /* Peer supports BGPSec */
 
   unsigned hold_time, keepalive_time;	/* Times calculated from my and neighbor's requirements */
@@ -215,7 +214,7 @@ static inline void set_next_hop(byte *b, ip_addr addr) { ((ip_addr *) b)[0] = ad
 
 void bgp_attach_attr(struct ea_list **to, struct linpool *pool, unsigned attr, uintptr_t val);
 byte *bgp_attach_attr_wa(struct ea_list **to, struct linpool *pool, unsigned attr, unsigned len);
-struct rta *bgp_decode_attrs(struct bgp_conn *conn, byte *a, unsigned int len, struct linpool *pool, int mandatory);
+struct rta *bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len, struct linpool *pool, byte * nlri, int nlri_len);
 int bgp_get_attr(struct eattr *e, byte *buf, int buflen);
 int bgp_rte_better(struct rte *, struct rte *);
 int bgp_rte_recalculate(rtable *table, net *net, rte *new, rte *old, rte *old_best);
@@ -348,3 +347,18 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 #endif
 
 #endif
+
+#define DECODE_PREFIX(pp, ll) do {		\
+  int b = *pp++;				\
+  int q;					\
+  ll--;						\
+  if (b > BITS_PER_IP_ADDRESS) { err=10; goto done; } \
+  q = (b+7) / 8;				\
+  if (ll < q) { err=1; goto done; }		\
+  memcpy(&prefix, pp, q);			\
+  pp += q;					\
+  ll -= q;					\
+  ipa_ntoh(prefix);				\
+  prefix = ipa_and(prefix, ipa_mkmask(b));	\
+  pxlen = b;					\
+} while (0)

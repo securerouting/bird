@@ -47,7 +47,7 @@ bgp_proto_start: proto_start BGP {
      BGP_CFG->enable_refresh = 1;
      BGP_CFG->enable_as4 = 1;
      BGP_CFG->enable_bgpsec = 1;
-		 BGP_CFG->bgpsec_ski = NULL;
+     BGP_CFG->bgpsec_ski = NULL;
      BGP_CFG->capabilities = 2;
      BGP_CFG->advertise_ipv4 = 1;
      BGP_CFG->interpret_communities = 1;
