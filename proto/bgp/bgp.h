@@ -4,6 +4,14 @@
  *	(c) 2000 Martin Mares <mj@ucw.cz>
  *
  *	Can be freely distributed and used under the terms of the GNU GPL.
+ *
+ *
+ *      Code added from Parsons, Inc. (BGPSEC additions)
+ *      (c) 2013-2013
+ *
+ *	Can be used under either license:
+ *      - Freely distributed and used under the terms of the GNU GPLv2.
+ *      - Freely distributed and used under a BSD license, See README.bgpsec.
  */
 
 #ifndef _BIRD_BGP_H_

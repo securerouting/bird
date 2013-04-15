@@ -1,9 +1,13 @@
 /*
  *	BIRD -- The Border Gateway Protocol
  *
- *	(c) 2011 SPARTA, Inc.
  *
- *	XXX: License
+ *      Parsons, Inc.
+ *      (c) 2013-2013
+ *
+ *	Code can be used under either license:
+ *      - Freely distributed and used under the terms of the GNU GPLv2.
+ *      - Freely distributed and used under a BSD license, See README.bgpsec.
  */
 
 #ifndef _BIRD_BGPSEC_H_
