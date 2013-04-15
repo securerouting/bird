@@ -308,7 +308,7 @@ int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpo
 } /* int bgpsec_create_aspath() */
 
 
-/* XXX delete me subroutine */
+/* XXX subroutine used for debbugging */
 char *
 hashbuff_to_string(u8 *hb, int len)
 {
@@ -420,39 +420,18 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 
       if ( sblock_end > (buf + len) )
 	{
-	  log(L_WARN "bgpsec_decode:%d<%d: bad signature block length, ignoring",
+          log(L_WARN "bgpsec_decode:%d<%d: bad signature block length, ignoring",
 	      bgp->local_as, bgp->remote_as);
 	  /* xxx */
 	  /* return errr bad length */
-          log(L_WARN "bgpsec_decode:%d<%d: bad signature block length, ignoring",
-	      bgp->local_as, bgp->remote_as);
 	  return IGNORE;
 	}
-
-      /* xxx delete me */
-      log(L_DEBUG "bgpsec_decode:%d<%d:            buf : %d",
-	  bgp->local_as, bgp->remote_as, buf);
-      log(L_DEBUG "bgpsec_decode:%d<%d:            len : %d:%d",
-	  bgp->local_as, bgp->remote_as, len, bgpsec_len);
-      log(L_DEBUG "bgpsec_decode:%d<%d: sigblock length: %d",
-	  bgp->local_as, bgp->remote_as, sigblock_len);
 
       /* while should end when (bptr == sblock_end) or there is an error */
       while ( (bptr < sblock_end) && 
               (spptr < (secpath_p + secpath_len)) )
 	{
 	  u16 sig_len = get_u16(bptr + BGPSEC_SKI_LENGTH);
-
-	  /* XXX delete me */
-	  log(L_DEBUG "bgpsec_decode:%d<%d:                            1st sig len = %d",
-	      bgp->local_as, bgp->remote_as,sig_len);
-	  log(L_DEBUG "bgpsec_decode:%d<%d:                                   bptr = %d",
-	      bgp->local_as, bgp->remote_as,bptr);
-	  log(L_DEBUG "bgpsec_decode:%d<%d: bptr + BGPSEC_SKI_LENGTH + 2 + sig_len = %d",
-	      bgp->local_as, bgp->remote_as,
-	      (bptr + BGPSEC_SKI_LENGTH + 2 + sig_len));
-	  log(L_DEBUG "bgpsec_decode:%d<%d:                             sblock_end = %d",
-	      bgp->local_as, bgp->remote_as,sblock_end);
 
 	  /* If we are NOT at the last sig segment in the this sig
 	   * list block, create and check regular hash */
@@ -465,18 +444,6 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 	      /* signer's AS, pcount, and flags */
 	      memcpy(hashbuff+4, spptr, 6);
 	      memcpy(hashbuff+10, recent_sig, recent_sig_len);
-
-	      /* XXX delete me */
-	      log(L_DEBUG "bgpsec_decode:%d<%d:no:      hash \'%s\'",
-		  bgp->local_as, bgp->remote_as,
-		  hashbuff_to_string(hashbuff,recent_sig_len+10));
-	      log(L_DEBUG "bgpsec_decode:%d<%d:no:       ski \'%s\'",
-		  bgp->local_as, bgp->remote_as,
-		  hashbuff_to_string(bptr,BGPSEC_SKI_LENGTH));
-	      log(L_DEBUG "bgpsec_decode:%d<%d:no: signature \'%s\'",
-		  bgp->local_as, bgp->remote_as, 
-		  hashbuff_to_string((bptr + BGPSEC_SKI_LENGTH + 2), sig_len));
-
 
               if ( BGPSEC_SIGNATURE_MATCH != 
                    bgpsec_verify_signature_with_bin_ski
@@ -496,9 +463,6 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 	      target_as = get_u32(spptr);
 	      spptr += 6;
 
-	      /* XXX delete me */
-	      log(L_DEBUG "bgpsec_decode:%d<%d:no: ************ GOOD SIGNATURE **********",
-		  bgp->local_as, bgp->remote_as);
             }
           /* else we are at the last sig segment, create and check
 	   * origination hash */
@@ -531,17 +495,6 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 	      ipa_hton(prefix);
 	      memcpy((hashbuff+14), &prefix, prefix_bytes);
 	      
-	      /* XXX delete me */
-	      log(L_DEBUG "bgpsec_decode:%d<%d:o:      hash \'%s\'",
-		  bgp->local_as, bgp->remote_as,
-		  hashbuff_to_string(hashbuff,prefix_bytes+14));
-	      log(L_DEBUG "bgpsec_decode:%d<%d:o:       ski \'%s\'",
-		  bgp->local_as, bgp->remote_as,
-		  hashbuff_to_string(bptr,BGPSEC_SKI_LENGTH));
-	      log(L_DEBUG "bgpsec_decode:%d<%d:o: signature \'%s\'",
-		  bgp->local_as, bgp->remote_as, 
-		  hashbuff_to_string((bptr + BGPSEC_SKI_LENGTH + 2), sig_len));
-
 	      if ( BGPSEC_SIGNATURE_MATCH != 
 		   bgpsec_verify_signature_with_bin_ski
 		     (bgp->cf,
@@ -557,10 +510,6 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 		      bgp->local_as, bgp->remote_as);
 		  return IGNORE;
 		}
-
-	      /* XXX delete me */
-	      log(L_DEBUG "bgpsec_decode:%d<%d:o: ************* GOOD SIGNATURE ***********",
-		  bgp->local_as, bgp->remote_as);
 
             } /* else last signature segment */
 
@@ -857,9 +806,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
   u8  pcount           = 0;
   u32 ras              = conn->bgp->remote_as;
   u32 las              = conn->bgp->local_as;
-  /* XXX delete me */
-  log(L_DEBUG "bgpsec_sign:%d>%d: length/remains = %d", 
-      conn->bgp->local_as, conn->bgp->remote_as, remains);
   
   u16 sig_segments_len = 0;
 
@@ -921,13 +867,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
       ipa_hton(prefix);
       memcpy((hashbuff+14), &prefix, px_bytes);
 
-
-      /* XXX delete me */
-      log(L_DEBUG "bgpsec_sign:%d>%d:o: hash \'%s\'", conn->bgp->local_as,
-	  conn->bgp->remote_as, hashbuff_to_string(hashbuff, 14+px_bytes));
-      log(L_DEBUG "bgpsec_sign:%d>%d:o:  ski \'%s\'", conn->bgp->local_as,
-	  conn->bgp->remote_as, conn->bgp->cf->bgpsec_ski);
-
       /* sign */
       sig_length = bgpsec_sign_data_with_ascii_ski(conn->bgp->cf,
 						   hashbuff, (14 + px_bytes), 
@@ -941,10 +880,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	      conn->bgp->local_as, conn->bgp->remote_as);
 	  return -1;
 	}    
-
-      /* XXX delete me */
-      log(L_DEBUG "bgpsec_sign:%d>%d:o: signature \'%s\'", conn->bgp->local_as,
-	  conn->bgp->remote_as, hashbuff_to_string(sigbuff, sig_length));
 
       if ( BGPSEC_SIGNATURE_MATCH != 
 	   bgpsec_verify_signature_with_ascii_ski
@@ -965,10 +900,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	}
 
       sig_segments_len = 2 + sig_length + BGPSEC_SKI_LENGTH;
-
-      /* XXX delete me */
-      log(L_DEBUG "bgpsec_sign:%d>%d:o:  sig_segments_len: %d",
-	  conn->bgp->local_as, conn->bgp->remote_as, sig_segments_len);
 
       /* just single sig block XXX */
       /* is there enough room for adding  a new signature */
@@ -1067,13 +998,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
       /* most recent sig field */
       memcpy((hashbuff+10), sig_p, old_sig_len);
       
-      /* XXX delete me */
-      log(L_DEBUG "bgpsec_sign:%d>%d:no:      hash \'%s\'",
-	  conn->bgp->local_as, conn->bgp->remote_as,
-	  hashbuff_to_string(hashbuff, old_sig_len+10));
-      log(L_DEBUG "bgpsec_sign:%d>%d:no:       ski \'%s\'", conn->bgp->local_as,
-	  conn->bgp->remote_as, conn->bgp->cf->bgpsec_ski);
-
       /* sign */
       sig_length = bgpsec_sign_data_with_ascii_ski(conn->bgp->cf,
 						   hashbuff, (old_sig_len + 10), 
@@ -1087,11 +1011,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	      conn->bgp->local_as, conn->bgp->remote_as);
 	  return -1;
 	}    
-
-      /* XXX delete me */
-      log(L_DEBUG "bgpsec_sign:%d>%d:no: signature \'%s\'",
-	  conn->bgp->local_as, conn->bgp->remote_as,
-	  hashbuff_to_string(sigbuff, sig_length));
 
       if ( BGPSEC_SIGNATURE_MATCH != 
 	   bgpsec_verify_signature_with_ascii_ski
@@ -1112,13 +1031,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	}
 
       sig_segments_len = old_sig_segments_len + sig_length + BGPSEC_SKI_LENGTH + 2;
-
-      /* XXX delete me */
-      int totwohdr = sig_segments_len + secpath_len + info_len + 13;
-      log(L_DEBUG "bgpsec_sign:%d>%d:no:  sig_segments_len: %d",
-	  conn->bgp->local_as, conn->bgp->remote_as, sig_segments_len);
-      log(L_DEBUG "bgpsec_sign:%d>%d:no: total sans header: %d",
-	  conn->bgp->local_as, conn->bgp->remote_as, totwohdr);
 
       /* just single sig block XXX */
       /* is there enough room for adding  a new signature */
@@ -1177,10 +1089,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
       ADVANCE(w, remains, old_sig_segments_len);
 
     }  /* else we are not the original AS */
-
-  /* XXX delete me */
-  log(L_DEBUG "bgpsec_sign:%d>%d:no:  SUCCESS, returning: %d",
-      conn->bgp->local_as, conn->bgp->remote_as, (w - start));
 
   return (w - start);
 } /* int bgpsec_sign */
