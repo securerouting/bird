@@ -13,8 +13,8 @@ implementation.
 This patch is not well tested and only tested on linux machines. It is
 in an Alpha release and ***should not be considered for production
 systems***.  The basic BGPSEC protocol is supported with a several
-notable exceptions: confederation support, algorithm rollover, and
-bugs we have not seen yet.
+notable exceptions: confederation support, more than one signature
+block (for algorithm rollover), and bugs we have not seen yet.
 
 For information on BGPSEC see the Internet Engineering Task Force
 (IETF) Secure Inter-Domain Routing (SIDR) working group page and
@@ -83,9 +83,19 @@ http://bird.network.cz/
 
 Or pull a fresh copy from our git repo.
 
-Build it using configure flags that look something like this:
+Build it.
+First rebuild configure:
 
- # ./configure '--enable-bgpsec' 'CFLAGS=-I/usr/local/openssl-ecdsa/include -g' 'LDFLAGS=-L/usr/local/openssl-ecdsa/lib64/'
+ # autoconf 
+
+Then Use configure flags that look something like the following. In
+particular the paths for -I/usr/local/openssl-ecdsa/include and
+-L/usr/local/openssl-ecdsa/lib are necessary to compile with a openssl
+install with ecdsa support.  These arguments will change and may not
+be necessary depending on if you needed to install ecdsa supporting
+openssl and where you installed it:
+
+ # ./configure '--enable-bgpsec' 'CFLAGS=-I/usr/local/openssl-ecdsa/include -g' 'LDFLAGS=-L/usr/local/openssl-ecdsa/lib/'
 
 Then make and you should be good to go.
 
