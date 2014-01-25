@@ -49,6 +49,9 @@ struct bgp_config {
   char *bgpsec_ski;                     /* local subject key id */
   char *bgpsec_key_repo_path;           /* Path to the key repository */
   int bgpsec_save_binary_keys;          /* Save a copy of the binary key */
+  int bgpsec_no_pcount0;                /* allow peer to have pcount 0, xxx current default allows */
+  int bgpsec_confed;                    /* is this peer a confederation member */
+  int bgpsec_confed_validate;           /* should confederation peers be valiadated */
 
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
@@ -110,7 +113,6 @@ struct bgp_proto {
   int bgpsec_receive;        /* Sender can receive BGPSec messages */
   int bgpsec_ipv4;           /* Sender uses BGPSec over iPv4 */
   int bgpsec_ipv6;           /* Sender uses BGPSec over iPv6 */
-  int bgpsec_safi;           /* Sender's Subsequent Address Family Id*/
 
   u32 local_id;				/* BGP identifier of this router */
   u32 remote_id;			/* BGP identifier of the neighbor */
@@ -173,9 +175,6 @@ struct bgp_bucket {
 #define BGPSEC_ALGO_ID              1   /* XXX this needs to be fixed */
 #define BGPSEC_MAX_SIG_LENGTH       128 /* XXX this needs to be fixed */
 #define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be fixed */
-
-#define BGPSEC_SAFI_UNICAST_FORWARD   1 /* RFC 4760, Multi-Proto Ext. for BGP4 */
-#define BGPSEC_SAFI_MULTICAST_FORWARD 2 /* RFC 4760, Multi-Proto Ext. for BGP4 */
 
 
 extern struct linpool *bgp_linpool;
