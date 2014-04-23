@@ -52,6 +52,7 @@ struct bgp_config {
   int bgpsec_no_pcount0;                /* allow peer to have pcount 0, xxx current default allows */
   int bgpsec_confed;                    /* is this peer a confederation member */
   int bgpsec_confed_validate;           /* should confederation peers be valiadated */
+  int bgpsec_no_invalid_routes;         /* should invalid routes be dropped */
 
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
@@ -168,7 +169,7 @@ struct bgp_bucket {
 /* BGPSec constants */
 
 #define BGPSEC_VERSION	    0
-#define BGPSEC_CAPABILITY   99  /* xxx currently an arbitrary value */
+#define BGPSEC_CAPABILITY   72  /* xxx currently a best guess value */
 #define BGPSEC_SPATH_CONFED_FLAG  0x80
 
 #define BGPSEC_SKI_LENGTH           20
@@ -272,17 +273,34 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 #define BA_AGGREGATOR		0x07				/* OT */
 #define BA_COMMUNITY		0x08	/* [RFC1997] */		/* OT */
 #define BA_ORIGINATOR_ID	0x09	/* [RFC1966] */		/* ON */
-#define BA_CLUSTER_LIST		0x0a				/* ON */
-#define BA_BGPSEC_SIGNATURE     0x0b  /* draft-ietf-sidr-bgpsec-protocol */
+#define BA_CLUSTER_LIST		0x0a	/* [RFC4456] */
 /* We don't support these: */
-#define BA_DPA			        0x0c  /* ??? */
-#define BA_ADVERTISER		    0x0d  /* [RFC1863] */
-#define BA_RCID_PATH		    0x0e
-#define BA_MP_REACH_NLRI	  0x0f  /* [RFC2283] */
-#define BA_MP_UNREACH_NLRI  0x10
-#define BA_EXT_COMMUNITY    0x11  /* [RFC4360] */
-#define BA_AS4_PATH         0x12  /* [RFC4893] */
-#define BA_AS4_AGGREGATOR   0x13
+#define BA_DPA   		0x0b	/* DPA deprecated */
+#define BA_ADVERTISER		0x0c    /* [RFC1863] */
+#define BA_RCID_PATH		0x0d    /* [RFC1863] */
+/* supported? */
+#define BA_MP_REACH_NLRI	0x0e    /* [RFC4760] */
+#define BA_MP_UNREACH_NLRI      0x0f    /* [RFC4760] */
+#define BA_EXT_COMMUNITY        0x10    /* [RFC4360] */
+#define BA_AS4_PATH             0x11    /* [RFC6793] */
+#define BA_AS4_AGGREGATOR       0x12    /* [RFC6793] */
+/* not supported */
+#define BA_SSA                  0x13    /* SAFI Specific Attribute (SSA) (deprecated) */
+#define BA_CONNECTOR_ATTR       0x14   /* (deprecated) [RFC6037] */
+#define BA_AS_PATHLIMIT         0x15   /* (deprecated) 	[draft-ietf-idr-as-pathlimit] */
+#define BA_PMSI_TUNNEL          0x16   /* [RFC6514] */
+#define BA_TUNNEL_ENCAP         0x17   /* Tunnel Encapsulation [RFC5512] */
+#define BA_TUNNEL_ENGINEERING   0x18   /* Traffic Engineering [RFC5543] */
+#define BA_IPV6_EXT_COMMUNITY   0x19   /* IPv6 Address Specific Extended Community [RFC5701] */
+#define BA_AIGP                 0x1a   /* AIGP (TEMPORARY, expired 2013-04-25) 	[draft-ietf-idr-aigp][Rex_Fernando][Pradosh_Mohapatra][Eric_Rosen][James_Uttaro] */
+#define BA_PE_DIST_LABELS       0x1b   /* PE Distinguisher Labels [RFC6514] */
+#define BA_ENTROPY_LABELS       0x1c   /* BGP Entropy Label Capability Attribute [RFC6790] */
+#define BA_LS_ATTRIBUTE         0x1d   /* BGP-LS Attribute (TEMPORARY, expired 2014-03-11) [draft-ietf-idr-ls-distribution] */
+
+/* Supported */
+#define BA_BGPSEC_SIGNATURE     0x1E   /* XXX 30 is best guess, draft-ietf-sidr-bgpsec-protocol */
+/* internal use only */
+#define BA_INTERNAL_BGPSEC_VALID  0xdd 
 
 /* BGP connection states */
 

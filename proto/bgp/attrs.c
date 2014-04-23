@@ -316,6 +316,29 @@ int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpo
 } /* int bgpsec_create_aspath() */
 
 
+/* Marks the route as "Valid" by adding a valid attribute */
+int bgpsec_add_valid_attr(rta *route, struct linpool *pool)
+{  
+  ea_list *ea;
+
+  /* xxx how to handle memory allocation error? */
+  ea = lp_alloc(pool, sizeof(ea_list) + sizeof(eattr));
+  ea->next  = route->eattrs;
+  route->eattrs = ea;
+
+  ea->flags = 0;
+  ea->count = 1;
+  ea->attrs[0].id    = EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID);
+  ea->attrs[0].flags = BAF_OPTIONAL;
+  ea->attrs[0].type  = EAF_TYPE_INT;
+  /* value 1 is arbitrary, existence of the attribute indicates valid */
+  ea->attrs[0].u.data = 1;
+
+  return 0;
+  
+} /* int bgpsec_add_valid_attr() */
+
+
 /* XXX subroutine used for debbugging */
 char *
 hashbuff_to_string(u8 *hb, int len)
@@ -344,7 +367,7 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 		          int        len,
 		          byte      *nlri,
 		          int        nlri_len,
-                          rta       *route,
+                          rta       *route_attr,
 		   struct linpool   *pool)
 {
   byte *bptr     = buf;
@@ -364,9 +387,9 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
   bzero(hashbuff, (BGPSEC_MAX_SIG_LENGTH + 10));
 
   /* Is it long enough to have a minimal valid bgpseg_path_attr */
-  /* 38 = 4 hdr + 8 sec-path + 3 sig-blk min + 23 
-   * (23 < sig-seg min), assume >=1 sigseg */
-  if ( len < 40 )
+  /* 34 = 8 sec-path + 3 sig-blk min + 23 
+     (23 < sig-seg min), assume >=1 sigseg */
+  if ( len < 34 )
     {
       log(L_WARN "bgpsec_decode:%d<%d: bad bgpsec attribute length, ignoring",
 	  bgp->local_as, bgp->remote_as);
@@ -378,7 +401,7 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
   byte      *secpath_p = bptr+2;
 
   /* Check secure path size, each segment is 6 octets long */
-  if ( ( (secpath_len % 6) != 0 ) || ((secpath_len + 25) > bgpsec_len) ) 
+  if ( ( ((secpath_len-2) % 6) != 0 ) || ((secpath_len + 25) > bgpsec_len) ) 
     {
       log(L_WARN "bgpsec_decode:%d<%d: bad secure path length, ignoring",
 	  bgp->local_as, bgp->remote_as);
@@ -389,11 +412,10 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 
   bptr+=secpath_len; 
 
-  byte *sigblock_p = bptr;
   u32    target_as = bgp->local_as;
 
   /* while should end when bptr == (buf + len) or there is an error */
-  /* XXX: Only handle one sig list blokc currently, i.e. should not
+  /* XXX: Only handle one sig list block currently, i.e. should not
    * loop more than once through while loop */
   while ( (buf + len) > bptr ) 
     {
@@ -455,7 +477,7 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 
       /* while should end when (bptr == sblock_end) or there is an error */
       while ( (bptr < sblock_end) && 
-              (spptr < (secpath_p + secpath_len)) )
+              (spptr < (secpath_p + secpath_len - 2)) )
 	{
 	  u16 sig_len = get_u16(bptr + BGPSEC_SKI_LENGTH);
 
@@ -510,7 +532,7 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                * origination hash */
               else 
                 {
-                  /* get prefix info,f sets: prefix, pxlen */
+                  /* get prefix, macro DECODE_PREFIX sets: prefix, pxlen */
                   DECODE_PREFIX(nlri, nlri_len);
                   /* only one prefix allowed in a BGPSEC message */
                   if ( nlri_len > 0 ) 
@@ -527,11 +549,11 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                   put_u32(hashbuff, target_as);
                   /* signer's AS, pcount, and flags */
                   memcpy((hashbuff+4),   spptr, 6);
-                  memcpy((hashbuff+12), &algo_id, 1);
-                  memcpy((hashbuff+13), &pxlen, 1);
+                  memcpy((hashbuff+10), &algo_id, 1);
+                  memcpy((hashbuff+11), &pxlen, 1);
                   int prefix_bytes = (pxlen + 7) / 8;
                   ipa_hton(prefix);
-                  memcpy((hashbuff+14), &prefix, prefix_bytes);
+                  memcpy((hashbuff+12), &prefix, prefix_bytes);
                   
                   if ( BGPSEC_SIGNATURE_MATCH != 
                        bgpsec_verify_signature_with_bin_ski
@@ -568,8 +590,17 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
       return IGNORE;
     }
 
+  /* Everythings Good, mark the route as valid */
+  if ( 0 < bgpsec_add_valid_attr(route_attr, pool) ) 
+    {
+      /* xxx currently should never happen, get rid of check? */
+      log(L_WARN "bgpsec_decode:%d<%d: unable to add valid attribute ignoring",
+	  bgp->local_as, bgp->remote_as);
+      return IGNORE;
+    }
+
   /* Everythings Good, create a local as_path to use for route selection */
-  if ( 0 < bgpsec_create_aspath(route, secpath_p, secpath_len, pool) ) 
+  if ( 0 < bgpsec_create_aspath(route_attr, secpath_p, secpath_len, pool) ) 
     {
       /* xxx currently should never happen, get rid of check? */
       log(L_WARN "bgpsec_decode:%d<%d: unable to create local as4path, ignoring",
@@ -615,45 +646,57 @@ bgp_check_ext_community(struct bgp_proto *p UNUSED, byte *a UNUSED, int len)
 
 
 static struct attr_desc bgp_attr_table[] = {
-  { NULL, -1, 0, 0, 0,								/* Undefined */
+  { NULL, -1, 0, 0, 0,								/* 0 Undefined */
     NULL, NULL },
-  { "origin", 1, BAF_TRANSITIVE, EAF_TYPE_INT, 1,				/* BA_ORIGIN */
+  { "origin", 1, BAF_TRANSITIVE, EAF_TYPE_INT, 1,				/* 1 BA_ORIGIN */
     bgp_check_origin, bgp_format_origin },
-  { "as_path", -1, BAF_TRANSITIVE, EAF_TYPE_AS_PATH, 1,				/* BA_AS_PATH */
+  { "as_path", -1, BAF_TRANSITIVE, EAF_TYPE_AS_PATH, 1,				/* 2 BA_AS_PATH */
     NULL, NULL }, /* is checked by validate_as_path() as a special case */
-  { "next_hop", 4, BAF_TRANSITIVE, EAF_TYPE_IP_ADDRESS, 1,			/* BA_NEXT_HOP */
+  { "next_hop", 4, BAF_TRANSITIVE, EAF_TYPE_IP_ADDRESS, 1,			/* 3 BA_NEXT_HOP */
     bgp_check_next_hop, bgp_format_next_hop },
-  { "med", 4, BAF_OPTIONAL, EAF_TYPE_INT, 1,					/* BA_MULTI_EXIT_DISC */
+  { "med", 4, BAF_OPTIONAL, EAF_TYPE_INT, 1,					/* 4 BA_MULTI_EXIT_DISC */
     NULL, NULL },
-  { "local_pref", 4, BAF_TRANSITIVE, EAF_TYPE_INT, 0,				/* BA_LOCAL_PREF */
+  { "local_pref", 4, BAF_TRANSITIVE, EAF_TYPE_INT, 0,				/* 5 BA_LOCAL_PREF */
     NULL, NULL },
-  { "atomic_aggr", 0, BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,			/* BA_ATOMIC_AGGR */
+  { "atomic_aggr", 0, BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,			/* 6 BA_ATOMIC_AGGR */
     NULL, NULL },
-  { "aggregator", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,	/* BA_AGGREGATOR */
+  { "aggregator", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,	/* 7 BA_AGGREGATOR */
     bgp_check_aggregator, bgp_format_aggregator },
-  { "community", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_INT_SET, 1,	/* BA_COMMUNITY */
+  { "community", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_INT_SET, 1,	/* 8 BA_COMMUNITY */
     bgp_check_community, NULL },
-  { "originator_id", 4, BAF_OPTIONAL, EAF_TYPE_ROUTER_ID, 0,			/* BA_ORIGINATOR_ID */
+  { "originator_id", 4, BAF_OPTIONAL, EAF_TYPE_ROUTER_ID, 0,			/* 9 BA_ORIGINATOR_ID */
     NULL, NULL },
-  { "cluster_list", -1, BAF_OPTIONAL, EAF_TYPE_INT_SET, 0,			/* BA_CLUSTER_LIST */
+  { "cluster_list", -1, BAF_OPTIONAL, EAF_TYPE_INT_SET, 0,			/* 10 BA_CLUSTER_LIST */
     bgp_check_cluster_list, bgp_format_cluster_list }, 
-  { "bgpsec_signature", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,                   /* BA_BGPSEC_SIGNATURE */
-    NULL, NULL }, /* checked by bgpsec_decode_attr,
-		   * bgpsec_authenticate, and bgpsec_sign as a special
-		   * case */
-  { .name = NULL },								/* BA_DPA */
-  { .name = NULL },								/* BA_ADVERTISER */
-  { .name = NULL },								/* BA_RCID_PATH */
-  { "mp_reach_nlri", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,			/* BA_MP_REACH_NLRI */
+  { .name = NULL },								/* 11 BA_DPA */
+  { .name = NULL },								/* 12 BA_ADVERTISER */
+  { .name = NULL },								/* 13 BA_RCID_PATH */
+  { "mp_reach_nlri", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,			/* 14 BA_MP_REACH_NLRI */
     bgp_check_reach_nlri, NULL },
-  { "mp_unreach_nlri", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,			/* BA_MP_UNREACH_NLRI */
+  { "mp_unreach_nlri", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,			/* 15 BA_MP_UNREACH_NLRI */
     bgp_check_unreach_nlri, NULL },
-  { "ext_community", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_EC_SET, 1,	/* BA_EXT_COMMUNITY */
+  { "ext_community", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_EC_SET, 1,	/* 16 BA_EXT_COMMUNITY */
     bgp_check_ext_community, NULL },
-  { "as4_path", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,		/* BA_AS4_PATH */
+  { "as4_path", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,		/* 17 BA_AS4_PATH */
     NULL, NULL },
-  { "as4_aggregator", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,	/* BA_AS4_PATH */
-    NULL, NULL }
+  { "as4_aggregator", -1, BAF_OPTIONAL | BAF_TRANSITIVE, EAF_TYPE_OPAQUE, 1,	/* 18 BA_AS4_AGGREGATOR */
+    NULL, NULL },
+  /* not supported attributes */
+  { .name = NULL },                                                             /* 19 BA_SSA */
+  { .name = NULL },                                                             /* 20 BA_CONNECTOR_ATTR */
+  { .name = NULL },                                                             /* 21 BA_AS_PATHLIMIT */
+  { .name = NULL },                                                             /* 22 BA_PMSI_TUNNEL */
+  { .name = NULL },                                                             /* 23 BA_TUNNEL_ENCAP */
+  { .name = NULL },                                                             /* 24 BA_TUNNEL_ENGINEERING */
+  { .name = NULL },                                                             /* 25 BA_IPV6_EXT_COMMUNITY */
+  { .name = NULL },                                                             /* 26 BA_AIGP */
+  { .name = NULL },                                                             /* 27 BA_PE_DIST_LABELS */
+  { .name = NULL },                                                             /* 28 BA_ENTROPY_LABELS */
+  { .name = NULL },                                                             /* 29 BA_LS_ATTRIBUTE */
+  /* supported */
+  { "bgpsec_signature", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,                   /* 30 BA_BGPSEC_SIGNATURE */
+    NULL, NULL }, /* Treated as a special case and checked by bgpsec_decode_attr,
+		   * bgpsec_authenticate, and bgpsec_sign */
 };
 
 /* BA_AS4_PATH is type EAF_TYPE_OPAQUE and not type EAF_TYPE_AS_PATH.
@@ -853,10 +896,16 @@ bgpsec_sign(struct  bgp_conn  *conn,
   if ( BGPSEC_SKI_LENGTH != 
        sscanf(conn->bgp->cf->bgpsec_ski,
 	      "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
-	      bski,(bski+1),(bski+2),(bski+3),(bski+4),
-	      (bski+5),(bski+6),(bski+7),(bski+8),(bski+9),
-	      (bski+10),(bski+11),(bski+12),(bski+13),(bski+14),
-	      (bski+15),(bski+16),(bski+17),(bski+18),(bski+19)) )
+	      (unsigned int *)bski,     (unsigned int *)(bski+1),
+              (unsigned int *)(bski+2), (unsigned int *)(bski+3),
+              (unsigned int *)(bski+4), (unsigned int *)(bski+5),
+              (unsigned int *)(bski+6), (unsigned int *)(bski+7),
+              (unsigned int *)(bski+8), (unsigned int *)(bski+9),
+	      (unsigned int *)(bski+10),(unsigned int *)(bski+11),
+              (unsigned int *)(bski+12),(unsigned int *)(bski+13),
+              (unsigned int *)(bski+14),(unsigned int *)(bski+15),
+              (unsigned int *)(bski+16),(unsigned int *)(bski+17),
+              (unsigned int *)(bski+18),(unsigned int *)(bski+19)) )
     {
       log(L_ERR "bgpsec_sign:%d>%d: error converting configuration SKI to binary",
 	  conn->bgp->local_as, conn->bgp->remote_as);
@@ -868,6 +917,9 @@ bgpsec_sign(struct  bgp_conn  *conn,
        ( conn->bgp->local_as == get_u32(pathptr + ((plen-1)*4)) &&
 	 conn->bgp->local_as == get_u32(pathptr) ) )
     {
+      /* XXX debug */
+      log(L_DEBUG "bgpsec_sign original AS\n");
+
       if ( bgpsa != NULL ) 
 	{
 	  log(L_ERR
@@ -956,21 +1008,22 @@ bgpsec_sign(struct  bgp_conn  *conn,
 				   (sig_segments_len + 11) );
       ADVANCE(w, remains, rv);
 
-      /* secure path */
-      put_u16(w, 6);
+      /* secure path len */
+      put_u16(w, 8);
+      /* secure path segments */
       ADVANCE(w, remains, 2);
       put_u32(w, las);
       ADVANCE(w, remains, 4);
       /* pcount of 1 */
       *w = 0x01;
       ADVANCE(w, remains, 1);
-      /* confederation flag setting */
+      /* flags: confederation flag setting */
       if ( conn->bgp->cf->bgpsec_confed ) { *w = BGPSEC_SPATH_CONFED_FLAG; }
       else                                { *w = 0x00; }
       ADVANCE(w, remains, 1);
 
       /* add sigblock hdr */
-      put_u16(w, sig_segments_len);
+      put_u16(w, (sig_segments_len + 3));      /* sig segmenst + header */
       ADVANCE(w, remains, 2);
       *w = BGPSEC_ALGO_ID;
       ADVANCE(w, remains, 1);
@@ -1009,13 +1062,15 @@ bgpsec_sign(struct  bgp_conn  *conn,
 
       /* get secure path info */
       byte *secpath_p = (byte *)&(bgpsa->u.ptr->data);
-      u16 secpath_len = get_u16(secpath_p);   secpath_p+=2;
+      u16 secpath_len = get_u16(secpath_p);
 
       /* skip to signature block */
       /* XXX, only handling a single signature block, should handle 1 or 2 */
       byte *sigblock_p = secpath_p + secpath_len;
 
-      u16 old_sig_segments_len = get_u16(sigblock_p);
+      secpath_p+=2; /* skip past secure path length value */
+
+      u16 old_sig_segments_len = get_u16(sigblock_p) - 3;
       /* also skip algo ID byte */
       sigblock_p+=3;
       byte     *sig_p = sigblock_p + BGPSEC_SKI_LENGTH;
@@ -1084,7 +1139,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	      conn->bgp->local_as, conn->bgp->remote_as, sig_length);
 	}
 
-      sig_segments_len = 3 + old_sig_segments_len + sig_length + BGPSEC_SKI_LENGTH + 2;
+      sig_segments_len = old_sig_segments_len + sig_length + BGPSEC_SKI_LENGTH + 2;
 
       /* just single sig block XXX */
       /* is there enough room for adding  a new signature */
@@ -1098,11 +1153,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	}
 
       /* add new bgpsec sig attr */
-      /* sizeof(secpath_len)=2 + secpath_len + 6 [secpath],
+      /* sizeof(secpath_len)= secpath_len + 6 [secpath],
        * (algo ID & sizeof(listblock_length)=3 => size without sig segments = 
        * = 11 + secpath_len + sig_segments_len */
       int rv = bgp_encode_attr_hdr(w, BAF_OPTIONAL, BA_BGPSEC_SIGNATURE,
-				   (11 + secpath_len + sig_segments_len) );
+				   (9 + secpath_len + sig_segments_len) );
       ADVANCE(w, remains, rv);
 
       /* secure path */
@@ -1119,11 +1174,11 @@ bgpsec_sign(struct  bgp_conn  *conn,
       ADVANCE(w, remains, 1);
 
       /* add old secure path */
-      memcpy(w, secpath_p, secpath_len);
-      ADVANCE(w, remains, secpath_len);
+      memcpy(w, secpath_p, (secpath_len-2));
+      ADVANCE(w, remains, (secpath_len-2));
       
       /* add sigblock hdr */
-      put_u16(w, sig_segments_len);
+      put_u16(w, (sig_segments_len+3)); /* segments plus header */
       ADVANCE(w, remains, 2);
       *w = BGPSEC_ALGO_ID;
       ADVANCE(w, remains, 1);
@@ -1177,6 +1232,12 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
       if (code == BA_NEXT_HOP)
 	continue;
 #endif
+
+      /* Do not send internal extended attribute */
+      if ( code == BA_INTERNAL_BGPSEC_VALID )
+	{
+	  continue;
+	}
 
       /* Do not send AS_PATH for BGPSEC connections, it is only used internally. */
       /* BGPSEC signing is handled after this loop, XXX should BGPSEC be handled inline? */
@@ -1536,7 +1597,9 @@ bgp_get_bucket(struct bgp_proto *p, net *n, ea_list *attrs, int originate)
   /* Hash */
   hash = ea_hash(new);
   for(b=p->bucket_hash[hash & (p->hash_size - 1)]; b; b=b->hash_next)
-    if (b->hash == hash && ea_same(b->eattrs, new))
+    if ( (b->hash == hash && ea_same(b->eattrs, new)) &&
+         (!p->conn->peer_bgpsec_support) )
+      /* multiple prefixes not allowed in BGPSEC NLRI*/
       {
 	DBG("Found bucket.\n");
 	return b;
@@ -1858,6 +1921,20 @@ bgp_rte_better(rte *new, rte *old)
     return 1;
   if (n < o)
     return 0;
+
+  /* Somewhat arbitrary placement for bgpsec validity check */
+  if (new_bgp->cf->enable_bgpsec || old_bgp->cf->enable_bgpsec)
+    {
+      x = ea_find(new->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
+      y = ea_find(old->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
+      n = x ? 1 : 0;
+      o = y ? 1 : 0;
+      if (n > o)
+	return 1;
+      if (n < o)
+	return 0;
+    }
+  
 
   /* RFC 4271 9.1.2.2. a)  Use AS path lengths */
   if (new_bgp->cf->compare_path_lengths || old_bgp->cf->compare_path_lengths)
@@ -2326,6 +2403,7 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
 	    }
 	  else if (code == BA_BGPSEC_SIGNATURE)
 	    {
+	      log(L_DEBUG "UPDATE: message has BA_BGPSEC_SIGNATURE");
 	      /* Special case, attribute must be parsed and
 	         cryptographically checked.  */
 	      /* AS_PATH should not be in the same update with a

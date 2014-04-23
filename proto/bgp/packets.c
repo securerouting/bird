@@ -166,16 +166,31 @@ bgp_put_cap_as4(struct bgp_conn *conn, byte *buf)
   return buf + 4;
 }
 
+/* Note: this adds 2 capabilities to bgp capabilitiies.
+ * One indicates this router can send BGPSEC messages and
+ * the other indicating it can recieve BGPSEC messages 
+ *
+ *  Currently, this code doesn't have differentiate in its
+ *  configuration. It either supports sending/receiving BGPSEC
+ *  messages or doesn't support BGPSEC */
 static byte *
 bgp_put_cap_bgpsec(struct bgp_conn *conn UNUSED, byte *buf)
 {
-  *buf++ = BGPSEC_CAPABILITY;  /* Capability 99: arbitrary number, BPGSEC */
+  /* can send bgpsec capability */
+  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BPGSEC */
   *buf++ = 3;		       /* BGPSEC Capability length */
-           /* bpgsec version and capable of sending and receiving bgpsec  */
-  *buf++ = ( (BGPSEC_VERSION << 4) | 0x80 ); 
+           /* bpgsec version and capable of sending */
+  *buf++ = ( (BGPSEC_VERSION << 4) | 0x08 ); 
   put_u16(buf, BGP_AF_IPV4);  /* address family, just ipv4 right now */
+  buf = buf + 2;
 
-  return buf;
+  /* can receive bgpsec capability */
+  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BPGSEC */
+  *buf++ = 3;		       /* BGPSEC Capability length */
+           /* bpgsec version and capable of receiving bgpsec  */
+  *buf++ = ( (BGPSEC_VERSION << 4) | 0x00 ); 
+  put_u16(buf, BGP_AF_IPV4);  /* address family, just ipv4 right now */
+  return buf + 2;
 }
 
 static byte *
@@ -702,8 +717,13 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  }
 
 	  if (opt[2] & 0x08) { 
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send/receive BGPSEC messages : %d", opt[2]);
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
 	    p->bgpsec_send = 1;
+	  }
+
+	  if (0 == (opt[2] & 0x08)) { 
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages, sigh : %d", opt[2]);
+	    p->bgpsec_receive = 1;
 	  }
 
 	  afi = get_u16(opt + 3);
@@ -1092,15 +1112,16 @@ bgp_do_rx_update(struct bgp_conn *conn,
 	  DECODE_PREFIX(x, len);
 	  DBG("Add %I/%d\n", prefix, pxlen);
 
+	  /* XXX shouldn't be here anymore?
 	  if (p->cf->enable_bgpsec && conn->peer_bgpsec_support)
 	    {
 	      if ( !bgpsec_authenticate(conn, a0, prefix, pxlen, bgp_linpool) )
 		{
-		  /* XXX correct error values */
+		  / XXX correct error values /
 		  err = 1;
 		  goto done;
 		}
-	    } 
+		} */
 
 	  if (a)
 	    {
