@@ -185,28 +185,20 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          # this connection.
          bgpsec_ski "8CA56CF0A4D943ACCEB9CB67967561CA8A773B73" ;
 
-	 # This is the default location for key storage. But it can
-         # also be set here.
+	 # The local directory path to router key storage. Default is
+         #  below:
          bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
 
 	 # Once processed, save used crypto keys in binary.  This
-         # should speed up future cryptography with those keys.
+         # should speed up future authentication with those keys.
          # Defaults to off.
          bgpsec_save_binary_keys 0;
 
 	 # Do not allow the peer to set its pcount to 0.  Default is
          # true.  Set this value to false/0 if you want to allow your
          # peer to not have their AS included in the effective AS-PATH
-         # lengths of routes (e.g. Route Servers).
-
+         # lengths of a route (e.g. Route Servers).
          bgpsec_no_pcount0 1;
-
-         BGPSEC_CONFED
-
-         BGPSEC_CONFED_VALIDATE
-
-         BGPSEC_NO_INVALID_ROUTES
-
 
 	 # non-bgpsec info
          description "BGP Link";
