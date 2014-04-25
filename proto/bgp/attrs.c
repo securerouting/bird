@@ -447,13 +447,13 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
 
       /* if not expecting peer pcount=0, check to make sure first pcount!=0 */
       if ( ( bgp->cf->bgpsec_no_pcount0 ) &&
-	   ( 0 == *(spptr+5) )               )
+	   ( 0 == *(spptr+4) )               )
 	{
           log(L_WARN "bgpsec_decode: pcount = 0 not allowed from this peer, invalid",
 	      bgp->local_as, bgp->remote_as);
 	  /* xxx */
 	  /* return spcefic error? */
-	  return 0;
+	  return IGNORE;
 	}
 
       int in_confed = bgp->cf->bgpsec_confed;

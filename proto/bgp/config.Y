@@ -57,7 +57,8 @@ bgp_proto_start: proto_start BGP {
      BGP_CFG->enable_as4 = 1;
      BGP_CFG->enable_bgpsec = 1;
      BGP_CFG->bgpsec_ski = NULL;
-     BGP_CFG->bgpsec_no_pcount0 = 0;
+     BGP_CFG->bgpsec_save_binary_keys = 0;
+     BGP_CFG->bgpsec_no_pcount0 = 1;
      BGP_CFG->bgpsec_confed = 0;
      BGP_CFG->bgpsec_confed_validate = 1;
      BGP_CFG->bgpsec_no_invalid_routes = 0;

@@ -10,11 +10,11 @@
 This is a patch that adds BGPSEC capability to the BIRD BGP
 implementation.
 
-This patch is not well tested and only tested on linux machines. It is
+This patch is not well tested and only tested on Linux machines. It is
 in an Alpha release and ***should not be considered for production
 systems***.  The basic BGPSEC protocol is supported with a several
-notable exceptions: confederation support, more than one signature
-block (for algorithm rollover), and bugs we have not seen yet.
+notable exceptions: IPv6 support, more than one signature block (for
+algorithm rollover), and bugs we have not seen yet.
 
 For information on BGPSEC see the Internet Engineering Task Force
 (IETF) Secure Inter-Domain Routing (SIDR) working group page and
@@ -23,9 +23,9 @@ specifically the draft describing the BGPSEC protocol:
 https://datatracker.ietf.org/wg/sidr/
 https://datatracker.ietf.org/doc/draft-ietf-sidr-bgpsec-protocol/
 
-This patch is for v1.3.9 of the BIRD software.  Your mileage may vary
-on a different version.  Information about BIRD including download
-instructions can be found at:
+This patch is for v1.3.9 of the BIRD software.  The patch will likely
+have some conflicts on different versions.  Information about BIRD
+including download instructions can be found at:
 
 http://bird.network.cz/
 
@@ -53,11 +53,11 @@ requires a few steps.  Contents
 On Fedora, you'll want flex, bison, and readline-devel packages.
 Use A Complete OpenSSL version
 
-The default OpenSSL distributed by many linux vendors doesn't include
-eliptic curve support.  If yours distribution does not support eliptic
-curve in OpenSSL, you'll need to grab a fresh copy and compile it by
-hand. You may want to install it in a particular location, so use the
-Configure flag to do this:
+The default OpenSSL distributed by many Linux vendors does not include
+elliptic curve support.  If yours distribution does not support
+elliptic curve in the OpenSSL libraries, you'll need to grab a fresh
+copy and compile it by hand. You may want to install it in a
+particular location, so use the Configure flag to do this:
 
  # ./Configure --prefix=/usr/local/openssl-ecdsa
 
@@ -84,7 +84,7 @@ http://bird.network.cz/
 Or pull a fresh copy from our git repo.
 
 Build it.
-First rebuild configure:
+First rebuild configure (configure.in was changed by the patch):
 
  # autoconf 
 
@@ -128,14 +128,16 @@ Some of the crypto parts of the code have a test suite you can run to verify it'
 
 2.4 Using It
 
-You can create key pairs using the proto/bgp/bgpsec/gen-router-key script:
+You can create key pairs using the proto/bgp/bgpsec/gen-router-key
+script.  For Example:
 
  # proto/bgp/bgpsec/gen-router-key -d /usr/share/bird/bgpsec-keys -p -c proto/bgp/bgpsec/router-key.cnf
  40C70252FE48D29401E9156ADBECF3EF42296AE4
 
 The generated certificate, private key and the CSR are stored in the
-directory structure under /usr/share/bird/bgpsec-keys using the SKI as
-a part of the directory names and file names of the keys (by default).
+directory structure under '/usr/share/bird/bgpsec-keys' using the SKI
+value, '40C70252FE48D29401E9156ADBECF3EF42296AE4', as a part of the
+directory names and file names of the keys (by default).
 
 The public key can be copied to other machines and placed in the same
 directories/filename without the private key. Likewise, keys from
@@ -144,7 +146,7 @@ identifying the directories/filenames in order for the validation
 routines to look them up.
 
 NOTE: in the future, this will be changed to use certificates or to
-use the -rtr protocol instead to pull router keys from
+use the -rtr protocol instead to pull router keys.
 
 
 2.5 Coding For It
@@ -178,12 +180,32 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          bgpsec on;
 
 	 # The local BIRD router subject key identifier (SKI) for this
-         # connection.  bgpsec_ski identifies the (private) key that
-         # BIRD should use to sign BGPSEC packets on this connection.
+         # connection.  'bgpsec_ski' identifies the (private) key that
+         # the local BIRD router should use to sign BGPSEC packets on
+         # this connection.
          bgpsec_ski "8CA56CF0A4D943ACCEB9CB67967561CA8A773B73" ;
 
-	 # This is the default location, but it can be set here.
+	 # This is the default location for key storage. But it can
+         # also be set here.
          bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
+
+	 # Once processed, save used crypto keys in binary.  This
+         # should speed up future cryptography with those keys.
+         # Defaults to off.
+         bgpsec_save_binary_keys 0;
+
+	 # Do not allow the peer to set its pcount to 0.  Default is
+         # true.  Set this value to false/0 if you want to allow your
+         # peer to not have their AS included in the effective AS-PATH
+         # lengths of routes (e.g. Route Servers).
+
+         bgpsec_no_pcount0 1;
+
+         BGPSEC_CONFED
+
+         BGPSEC_CONFED_VALIDATE
+
+         BGPSEC_NO_INVALID_ROUTES
 
 
 	 # non-bgpsec info
