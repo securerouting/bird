@@ -173,8 +173,8 @@ struct bgp_bucket {
 #define BGPSEC_SPATH_CONFED_FLAG  0x80
 
 #define BGPSEC_SKI_LENGTH           20
-#define BGPSEC_ALGO_ID              1   /* XXX this needs to be fixed */
-#define BGPSEC_MAX_SIG_LENGTH       128 /* XXX this needs to be fixed */
+#define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
+#define BGPSEC_MAX_SIG_LENGTH       128 /* XXX this needs to be checked */
 #define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be fixed */
 
 
