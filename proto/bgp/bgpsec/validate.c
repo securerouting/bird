@@ -16,51 +16,27 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <openssl/bn.h>
+#include <openssl/ec.h>
 #include "validate.h"
 
 /* define if the openssl errors should be logged */
 /* #define LOG_OPENSSL_ERRORS */
 
 /* define if the logging should go to STDERR instead of the bird log file */
-/* #define LOG_TO_STDERR */
-
-/* XXX: this is copied from openssl's (1.0.1c) ec_lcl.h which could
-        change But they don't provide an API to get to the private key
-        section.  This isn't the right way to go, but is currently the
-        only available choice.
-*/
-struct ec_key_st {
-        int version;
-
-        EC_GROUP *group;
-
-        EC_POINT *pub_key;
-        BIGNUM   *priv_key;
-
-        unsigned int enc_flag;
-        point_conversion_form_t conv_form;
-
-        int     references;
-        int     flags;
-
-   void *method_data; /* was EC_EXTRA_DATA */
-} /* EC_KEY */;
+/* #define LOG_TO_STDERR  */
 
 #ifdef LOG_TO_STDERR
-#define ERRORMSG(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); } while(0);
+#define ERRORMSG(errmsg) do { fprintf(stderr, "Error: %s\n", errmsg); } while(0)
 #else
-#define ERRORMSG(errmsg) do { log(L_ERR "Error: %s\n", errmsg); } while(0);
+#define ERRORMSG(errmsg) do { log(L_ERR "Error: %s\n", errmsg); } while(0)
 #endif
 
-#define ERROR(errmsg) do { ERRORMSG(errmsg); return(BGPSEC_FAILURE); } while(0);
+#define ERROR(errmsg) do { ERRORMSG(errmsg); return(BGPSEC_FAILURE); } while(0)
 
 void print_openssl_errors() {
-#ifdef LOG_OPENSSL_ERRORS
-#ifdef LOG_TO_STDERR
+#if defined(LOG_OPENSSL_ERRORS) && defined(LOG_TO_STDERR)
     ERR_print_errors_fp(stderr);
-#endif /* LOG_TO_STDERR */
-#endif /* LOG_OPENSSL_ERRORS */
+#endif
 }
 
 int bgpsec_sign_data_with_bin_ski(struct bgp_config *conf,
@@ -68,12 +44,13 @@ int bgpsec_sign_data_with_bin_ski(struct bgp_config *conf,
                                   char *ski, size_t ski_len,
                                   int algorithm, byte *signature,
                                   int in_signature_len) {
-    bgpsec_key_data key;
-
+    bgpsec_key_data key = { NULL };
+  
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_bin_ski(conf, ski, ski_len,
                                      &key, BGPSEC_DEFAULT_CURVE, 1)) {
-        ERROR("Failed to load a bgpsec key from a binary SKI");
+        log(L_ERR "Failed to load a bgpsec key from a binary SKI");
+	return(BGPSEC_FAILURE);
     }
 
 
@@ -86,19 +63,20 @@ int bgpsec_sign_data_with_ascii_ski(struct bgp_config *conf,
                                     char *ski, size_t ski_len,
                                     int algorithm, byte *signature,
                                     int in_signature_len) {
-    bgpsec_key_data key;
+    bgpsec_key_data key = { NULL };
 
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_ascii_ski(conf, ski, ski_len,
                                        &key, BGPSEC_DEFAULT_CURVE, 1)) {
-        ERROR("Failed to load a bgpsec key from an ascii SKI");
+        log(L_ERR "Failed to load a bgpsec key from an ascii SKI");
+	return(BGPSEC_FAILURE);
     }
-
 
     return bgpsec_sign_data_with_cert(conf, octets, octets_len, key,
                                       algorithm, signature, in_signature_len);
-                                      
 }
+
+/* Might need to call OpenSSL_add_all_digests() somewhere */
 
 int bgpsec_sign_data_with_cert(struct bgp_config *conf,
                                byte *octets, int octets_len,
@@ -106,54 +84,34 @@ int bgpsec_sign_data_with_cert(struct bgp_config *conf,
                                int signature_algorithm,
                                byte *signature, int signature_len) {
 
+    EVP_PKEY_CTX *ctx = NULL;
+    unsigned char md_value[EVP_MAX_MD_SIZE];
+    size_t md_len;
+    int result = -1;
+
     switch (signature_algorithm) {
     case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
-    {
-        
-        /* RFC 3279, section 2.2.3 defines the update signature format:
-            Ecdsa-Sig-Value  ::=  SEQUENCE  {
-                 r     INTEGER,
-                 s     INTEGER  }
-        */
 
-        /* XXX: fix memory leaks */
+	if (EVP_Digest(octets, octets_len, md_value, &md_len, EVP_sha256(), NULL) &&
+	    (ctx = EVP_PKEY_CTX_new(cert.pkey, NULL)) != NULL &&
+	    EVP_PKEY_sign_init(ctx) > 0 &&
+	    EVP_PKEY_CTX_set_signature_md(ctx, EVP_sha256()) > 0 &&
+	    EVP_PKEY_sign(ctx, signature, &signature_len, md_value, md_len) > 0)
+	{
+	    result = signature_len;
+	}
+	else
+	{
+	  log(L_ERR "validate: Failed to create digest/sign");
+          return(BGPSEC_FAILURE);
+	}
 
-        /* XXX: create signature and return it's length */
-        ECDSA_SIG *result;
-        ASN1_INTEGER *ar = ASN1_INTEGER_new();
-        ASN1_INTEGER *as = ASN1_INTEGER_new();
-        unsigned char buffer[1024], *cp = &buffer[2];
-        int length = 0;
-
-        buffer[0] = 0x30;
-
-        result = ECDSA_do_sign(octets, octets_len, cert.ecdsa_key);
-
-        BN_to_ASN1_INTEGER(result->r, ar);
-        BN_to_ASN1_INTEGER(result->s, as);
-        length += i2d_ASN1_INTEGER(ar, &cp);
-        length += i2d_ASN1_INTEGER(as, &cp);
-
-        /* XXX: deal with proper sequences later */
-        if (length > 128) {
-            return -1;
-        }
-        
-        buffer[1] = length;
-
-        length += 2;
-        
-        if (length > signature_len) {
-            return -1;
-        }
-
-        memcpy(signature, buffer, length);
-        return length;
-    }
     default:
-        return -1;
+        break;
     }
-    return -1;
+
+    EVP_PKEY_CTX_free(ctx);
+    return result;
 }
 
 int bgpsec_verify_signature_with_cert(struct bgp_config *conf,
@@ -161,31 +119,31 @@ int bgpsec_verify_signature_with_cert(struct bgp_config *conf,
                                       bgpsec_key_data cert,
                                       int signature_algorithm,
                                       byte *signature, int signature_len) {
-    int  result;
-    ECDSA_SIG *ecdsa_signature = ECDSA_SIG_new();
-    ASN1_INTEGER *ar = NULL;
-    ASN1_INTEGER *as = NULL;
-    const unsigned char *cp = signature+2;
-    
-    /* extract the signature object from the DER encoded structure */
-    d2i_ASN1_INTEGER(&ar, &cp, signature_len - (cp - signature));
-    d2i_ASN1_INTEGER(&as, &cp, signature_len - (cp - signature));
-    ASN1_INTEGER_to_BN(ar, ecdsa_signature->r);
-    ASN1_INTEGER_to_BN(as, ecdsa_signature->s);
+    EVP_PKEY_CTX *ctx = NULL;
+    unsigned char md_value[EVP_MAX_MD_SIZE];
+    size_t md_len;
+    int result = BGPSEC_SIGNATURE_ERROR;
 
-    result = ECDSA_do_verify(octets, octets_len, ecdsa_signature,
-                             cert.ecdsa_key);
+    /*
+     * Not sure that BGPSEC_SIGNATURE_MISMATCH makes sense given the API.
+     */
 
-    if (result == -1) {
-        /* openssl error */
-        print_openssl_errors();
-        return BGPSEC_SIGNATURE_MISMATCH;
+    if (EVP_Digest(octets, octets_len, md_value, &md_len, EVP_sha256(), NULL) &&
+	(ctx = EVP_PKEY_CTX_new(cert.pkey, NULL)) != NULL &&
+	EVP_PKEY_verify_init(ctx) > 0 &&
+	EVP_PKEY_CTX_set_signature_md(ctx, EVP_sha256()) > 0 &&
+	EVP_PKEY_verify(ctx, signature, signature_len, md_value, md_len) > 0)
+    {
+        result = BGPSEC_SIGNATURE_MATCH;
     }
 
-    if (result == 1)
-        return BGPSEC_SIGNATURE_MATCH;
+#if 0
+    else
+        print_openssl_errors();
+#endif
 
-    return BGPSEC_SIGNATURE_MISMATCH;
+    EVP_PKEY_CTX_free(ctx);
+    return result;
 }
     
 int bgpsec_verify_signature_with_ascii_ski(struct bgp_config *conf,
@@ -193,14 +151,14 @@ int bgpsec_verify_signature_with_ascii_ski(struct bgp_config *conf,
                                            char *ski, size_t ski_len,
                                            int signature_algorithm,
                                            byte *signature, int signature_len) {
-    bgpsec_key_data key;
+    bgpsec_key_data key = { NULL };
 
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_ascii_ski(conf, ski, ski_len,
                                        &key, BGPSEC_DEFAULT_CURVE, 0)) {
-        ERROR("Failed to load a bgpsec key from an ascii SKI");
+        log(L_ERR "Failed to load a bgpsec key from an ascii SKI");
+        return(BGPSEC_FAILURE);
     }
-
 
     return bgpsec_verify_signature_with_cert(conf, octets, octets_len, key,
                                              signature_algorithm,
@@ -212,14 +170,14 @@ int bgpsec_verify_signature_with_bin_ski(struct bgp_config *conf,
                                          char *ski, size_t ski_len,
                                          int signature_algorithm,
                                          byte *signature, int signature_len) {
-    bgpsec_key_data key;
+    bgpsec_key_data key = { NULL };
 
     if (BGPSEC_SUCCESS !=
         bgpsec_load_key_from_bin_ski(conf, ski, ski_len,
                                      &key, BGPSEC_DEFAULT_CURVE, 0)) {
-        ERROR("Failed to load a bgpsec key from an binary SKI");
+        log(L_ERR "Failed to load a bgpsec key from an binary SKI");
+        return(BGPSEC_FAILURE);
     }
-
 
     return bgpsec_verify_signature_with_cert(conf, octets, octets_len, key,
                                              signature_algorithm,
@@ -230,75 +188,69 @@ int bgpsec_save_key(struct bgp_config *conf,
                     const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int savePrivateKey) {
     char filenamebuf[MAXPATHLEN];
-    char octetBuffer[4096];
-    const BIGNUM *keydata;
-    const EC_POINT *publicKey;
-    FILE *saveTo;
-    size_t len;
+    BIO *bio = NULL;
     mode_t oldUmask;
 
-    oldUmask = umask(066);
+    oldUmask = umask(077);
 
-    filenamebuf[sizeof(filenamebuf)-1] = '\0';
+    memset(filenamebuf, 0, sizeof(filenamebuf));
+
+    /*
+     * Might want to whack asn1_flag to force namedCurve.
+     */
 
     if (savePrivateKey) {
-        /* extract the private key */
-        keydata = EC_KEY_get0_private_key(key_data->ecdsa_key);
-        if (NULL == keydata) {
-            umask(oldUmask);
-            ERROR("Failed to extract the private key");
-        }
-
         /* save the private key */
         snprintf(filenamebuf, sizeof(filenamebuf)-1,
                  "%s.bin_private", filePrefix);
-        saveTo = fopen(filenamebuf, "w");
-        BN_print_fp(saveTo, keydata);
-        fclose(saveTo);
-    }
-
-    /* extract the public key */
-    publicKey = EC_KEY_get0_public_key(key_data->ecdsa_key);
-    if (NULL == publicKey) {
-        umask(oldUmask);
-        ERROR("Failed to extract the public key");
+	if ((bio = BIO_new_file(filenamebuf, "wb")) == NULL ||
+	    !i2d_PrivateKey_bio(bio, key_data->pkey) ||
+	    !!BIO_free(bio))
+	  log(L_ERR "Couldn't save private key");
+          return(BGPSEC_FAILURE);
+	bio = NULL;
     }
 
     /* save the public key */
-    /* XXX: leaks the curve object */
-    len = EC_POINT_point2oct(EC_GROUP_new_by_curve_name(curveId),
-                             publicKey, POINT_CONVERSION_COMPRESSED,
-                             octetBuffer, sizeof(octetBuffer), NULL);
-
     snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.bin_pub", filePrefix);
-    saveTo = fopen(filenamebuf, "w");
-    fwrite(octetBuffer, len, 1, saveTo);
-    fclose(saveTo);
+    if ((bio = BIO_new_file(filenamebuf, "wb")) == NULL ||
+	!i2d_PUBKEY_bio(bio, key_data->pkey) ||
+	!BIO_free(bio))
+      log(L_ERR "Couldn't save public key");
+      return(BGPSEC_FAILURE);
+
 
     umask(oldUmask);
 
     return BGPSEC_SUCCESS;
 }
 
+/*
+ * OK, this is a lot more complicated than it needs to be.
+ *
+ * All we really need is:
+ *
+ * - For private keys, read public/private keypair from a DER file.
+ *
+ * - For public keys, read public key from a DER file.
+ *
+ * Not clear that this code should be touching certificates at all, or
+ * using PEM, although we could support both to be kind.  Let's not,
+ * for now, to keep this simple.
+ *
+ * Given that "openssl req" takes an -inform flag, Mike's script could
+ * easily be hacked to do everything in DER.  Similarly, since nobody
+ * is likely to work out the filename SKI encoding by hand, the script
+ * that does that for imported certificates could just extract the
+ * public key and write it in DER.
+ */
+
 int bgpsec_load_key(struct bgp_config *conf,
                     const char *filePrefix, bgpsec_key_data *key_data,
                     int curveId, int loadPrivateKey) {
-    char filenamebuf[MAXPATHLEN], filenamebuf2[MAXPATHLEN];
-    char octetBuffer[4096];
-    BIGNUM *privateData = NULL;
-    EC_POINT *publicKey = NULL;
-    FILE *loadFrom = NULL;
-    size_t len;
-    int ret;
-    EC_GROUP *ecGroup;
-    unsigned char *cbuf = NULL;
-    
-    BIO            *input_bio = NULL;
-    EVP_PKEY       *private_key = NULL;
-    X509           *x509_cert = NULL;
-
-    struct stat statBuf;
-    struct stat statBuf2;
+    char filenamebuf[MAXPATHLEN];
+    int ret = BGPSEC_FAILURE;
+    BIO *bio = NULL;
 
     /* translate the curve ID to the OpenSSL identifier */
     switch (curveId) {
@@ -306,191 +258,30 @@ int bgpsec_load_key(struct bgp_config *conf,
         curveId = BGPSEC_OPENSSL_ID_SHA256_ECDSA_P_256;
         break;
     default:
-        ERROR("Unkown curve ID");
+        log(L_ERR "Unkown curve ID");
+        return(BGPSEC_FAILURE);
     }
 
+    memset(filenamebuf, 0, sizeof(filenamebuf));
 
-    filenamebuf[sizeof(filenamebuf)-1] = '\0';
-    filenamebuf2[sizeof(filenamebuf2)-1] = '\0';
-    /* load the public key */
-    snprintf(filenamebuf2, sizeof(filenamebuf2)-1, "%s.bin_pub", filePrefix);
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.pub", filePrefix);
-    
-    if (stat(filenamebuf2, &statBuf2) == 0) {
-        /* if binary keys are found then we can load them directly
-           instead of having to load and parse an x.509 cert */
+    snprintf(filenamebuf, sizeof(filenamebuf) - 1, "%s.%s",
+	     filePrefix, (loadPrivateKey ? "private" : "pub"));
 
-        if (stat(filenamebuf, &statBuf) == 0) {
-            /* make sure the x.509 is not newer than the private file */
-            if (statBuf.st_mtime > statBuf2.st_mtime)
-                goto load_x509_keys;
-        }
-
-        /* create the basic key structure */
-        key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
-
-        if (loadPrivateKey) {
-            /* load the private key */
-            snprintf(filenamebuf, sizeof(filenamebuf)-1,
-                     "%s.bin_private", filePrefix);
-            loadFrom = fopen(filenamebuf, "r");
-            if (loadFrom == NULL) {
-                ERRORMSG("failed to open the private key file");
-                goto load_x509_keys;
-            }
-
-            len = fread(octetBuffer, sizeof(octetBuffer), 1, loadFrom);
-            if (len < 0)
-                ERROR("failed to read the private key file");
-
-            fclose(loadFrom);
-
-            BN_hex2bn(&privateData, octetBuffer);
-            EC_KEY_set_private_key(key_data->ecdsa_key, privateData);
-        }
-
-        /* find the size of the file */
-    
-        loadFrom = fopen(filenamebuf2, "r"); 
-        if (fread(octetBuffer, statBuf2.st_size, 1, loadFrom) != 1) {
-            ERROR("failed to read the public key file");
-        }
-        fclose(loadFrom);
-
-        /* XXX: leaks the curve object */
-        ecGroup = EC_GROUP_new_by_curve_name(curveId);
-        if (NULL == ecGroup) {
-            ERROR("Failed to create a EC_GROUP");
-        }
-        publicKey = EC_POINT_new(ecGroup);
-        if (!publicKey) {
-            ERROR("failed to create a new EC_POINT");
-        }
-        EC_POINT_oct2point(ecGroup, publicKey, octetBuffer,
-                           statBuf2.st_size, NULL);
-
-        ret = EC_KEY_set_public_key(key_data->ecdsa_key, publicKey);
-        if (0 == publicKey) {
-            ERROR("failed to load the public key");
-        }
-
-        if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
-            ERROR("newly loaded EC key not ok");
-        }
-
-        return BGPSEC_SUCCESS;
+    if ((bio = BIO_new_file(filenamebuf, "rb")) != NULL &&
+	(loadPrivateKey
+	 ? d2i_PrivateKey_bio(bio, &key_data->pkey)
+	 : d2i_PUBKEY_bio(bio, &key_data->pkey)) &&
+	EVP_PKEY_id(key_data->pkey) == EVP_PKEY_EC &&
+	BIO_free(bio))
+    {
+	EC_KEY_set_asn1_flag(EVP_PKEY_get0(key_data->pkey), OPENSSL_EC_NAMED_CURVE);
+        ret = BGPSEC_SUCCESS;
+	bio = NULL;
     }
 
-  load_x509_keys:
+    BIO_free(bio);
 
-    /* create the basic key structure */
-    key_data->ecdsa_key = EC_KEY_new_by_curve_name(curveId);
-
-    /* load the public key */
-    input_bio = BIO_new(BIO_s_file());
-    if (NULL == input_bio) {
-        ERROR("Error creating OpenSSL file BIO");
-    }
-
-    snprintf(filenamebuf, sizeof(filenamebuf)-1, "%s.pub", filePrefix);
-
-    if (BIO_read_filename(input_bio, filenamebuf) <=0) {
-        BIO_vfree(input_bio);
-        ERROR("Error reading public certificate from BIO");
-    }
-
-/* #define BGPSEC_USE_PEM_CERTS 1 */
-#ifdef BGPSEC_USE_PEM_CERTS
-    x509_cert = PEM_read_bio_X509_AUX(input_bio, NULL, NULL, NULL);
-    if (NULL == x509_cert) {
-        ERROR("Failed to load the x509 cert");
-    }
-#else /* following is !BGPSEC_USE_PEM_CERTS, which is DER */
-    x509_cert = X509_new();
-    if (NULL == x509_cert) {
-        ERROR("Failed to create an empty x509 certificate");
-    }
-    x509_cert = d2i_X509_bio(input_bio, &x509_cert); /* DER/ASN1 */
-    if (NULL == x509_cert) {
-        ERROR("Failed to load the (DER) x509 cert");
-    }
-    BIO_reset(input_bio); /* XXX: actually needed? */
-#endif /* BGPSEC_USE_PEM_CERTS */
-
-
-
-
-    /* XXX: key is in x509_cert->cert_info->key */
-    /* type:
-               X509_PUBKEY *key;
-               ->
-                         ASN1_BIT_STRING *public_key;
-                         EVP_PKEY *pkey;
-    */
-
-
-    /* ...cert_info->key->pkey->ec */
-
-    /* XXX: leaks the curve object */
-    ecGroup = EC_GROUP_new_by_curve_name(curveId);
-    if (NULL == ecGroup) {
-        ERROR("Failed to create a EC_GROUP");
-    }
-    publicKey = EC_POINT_new(ecGroup);
-    if (!publicKey) {
-        ERROR("Failed to create a new EC_POINT");
-    }
-
-    memcpy(octetBuffer,
-           ASN1_STRING_data(x509_cert->cert_info->key->public_key),
-           len = ASN1_STRING_length(x509_cert->cert_info->key->public_key));
-
-    EC_POINT_oct2point(ecGroup, publicKey, octetBuffer, len, NULL);
-
-    ret = EC_KEY_set_public_key(key_data->ecdsa_key, publicKey);
-    if (0 == publicKey) {
-        ERROR("Failed to load the public key");
-    }
-
-    if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
-        ERROR("Newly loaded public EC key not ok");
-    }
-
-    if (loadPrivateKey) {
-        /* load the private key */
-        snprintf(filenamebuf, sizeof(filenamebuf)-1,
-                 "%s.private", filePrefix);
-
-        input_bio = BIO_new(BIO_s_file());
-        if (NULL == input_bio) {
-            ERROR("Failed to load a private key");
-        }
-
-        if (BIO_read_filename(input_bio, filenamebuf) <=0) {
-            BIO_vfree(input_bio);
-            ERROR("Error reading a private key from a BIO");
-        }
-
-        private_key = PEM_read_bio_PrivateKey(input_bio, NULL, NULL, NULL);
-        if (NULL == private_key)
-            ERROR("Failed to load the private key from the bio");
-
-        BIO_vfree(input_bio);
-        
-        if (!EC_KEY_set_private_key(key_data->ecdsa_key,
-                                    private_key->pkey.ec->priv_key))
-            ERROR("Failed to set the private key into the EC key object");
-
-        if (0 == EC_KEY_check_key(key_data->ecdsa_key)) {
-            ERROR("Newly loaded public/private EC key not ok");
-        }
-    }
-
-    if (conf->bgpsec_save_binary_keys) {
-        /* ignore warnings; we have all the data we need anyway */
-        bgpsec_save_key(conf, filePrefix, key_data, curveId, loadPrivateKey);
-    }
-    return BGPSEC_SUCCESS;
+    return ret;
 }
 
 int bgpsec_load_key_from_ascii_ski(struct bgp_config *conf,
@@ -504,7 +295,9 @@ int bgpsec_load_key_from_ascii_ski(struct bgp_config *conf,
                                 conf->bgpsec_key_repo_path :
                                 DEFAULT_KEY_REPO_PATH),
                                ski, ski_len)) {
-        ERROR("failed to generate a file name from a ski");
+      
+      log(L_ERR "failed to generate a file name from a ski");
+      return(BGPSEC_FAILURE);
     }
 
     return bgpsec_load_key(conf, filenamebuf, key_data,
@@ -514,46 +307,21 @@ int bgpsec_load_key_from_ascii_ski(struct bgp_config *conf,
 char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
                             const char *rootPath,
                             const char *ski, size_t skiLen) {
-    char octetBuffer[4096];
-    BIGNUM *privateData = NULL;
-    EC_POINT *publicKey;
-    FILE *loadFrom;
-    size_t len;
+
     int ret;
-    EC_GROUP *ecGroup;
 
-    /* just in case buffers */
-    char ascii_buf[MAXPATHLEN];
+    /*
+     * SKI is fixed length, so neither error case should never happen.
+     */
 
-    /* verify that the incoming data is appropriate */
-    if (skiLen > filenamebufLen
-        - strlen(rootPath)
-        - 3 /* for slashes */) {
-        return NULL;
-    }
+    if (skiLen <= 6)
+	return NULL;
 
-    if (ski[skiLen-1] != 0) {
-        /* the ski isn't null terminated, so we'll need to replace it
-           with a string that is */
-        if (skiLen > sizeof(ascii_buf)) {
-            ERRORMSG("Invalid incoming SKI length");
-            return NULL;
-        }
-        memcpy(ascii_buf, ski, skiLen);
-        ascii_buf[skiLen] = '\0';
-        ski = ascii_buf;
-    }
+    ret = snprintf(filenamebuf, filenamebufLen-1, "%s/%.2s/%.4s/%.*s",
+		   rootPath, ski, ski + 2, skiLen - 6, ski + 6);
 
-    filenamebuf[filenamebufLen-1] = '\0';
-
-    /* if the ski is ridicousouly short, just put it in a flat directory */
-    if (skiLen <= 6) {
-        snprintf(filenamebuf, filenamebufLen-1, "%s/%s", rootPath, ski);
-    } else {
-        snprintf(filenamebuf, filenamebufLen-1, "%s/%2.2s/%4.4s/%s",
-                 rootPath,
-                 ski, ski + 2, ski + 6);
-    }
+    if (ret >= filenamebufLen)
+	return NULL;
 
     return filenamebuf;
 }    
@@ -562,26 +330,22 @@ int bgpsec_load_key_from_bin_ski(struct bgp_config *conf,
                                  const char *ski, size_t ski_len,
                                  bgpsec_key_data *key_data,
                                  int curveId, int loadPrivateKey) {
-    char filenamebuf[MAXPATHLEN];
-    char octetBuffer[4096];
-    BIGNUM *privateData = NULL;
-    EC_POINT *publicKey;
-    FILE *loadFrom;
-    size_t len;
-    int ret;
-    EC_GROUP *ecGroup;
 
-    char ascii_ski_buf[ski_len * 2 + 1], *cp;
+    char ascii_ski_buf[MAXPATHLEN], *cp;
     int i;
-    
+
+    if (ski_len * 2 + 1 >= sizeof(ascii_ski_buf)) {
+        log(L_ERR "validate: buffer to small for SKI length: %d", ski_len);
+	return BGPSEC_FAILURE;
+    }
+
+    memset(ascii_ski_buf, 0, sizeof(ascii_ski_buf));
+
     cp = ascii_ski_buf;
-    for(i = 0; i < ski_len; i++) {
+    for (i = 0; i < ski_len; i++) {
       sprintf(cp, "%02X", (byte)ski[i]);
       cp += 2;
     }
-
-    /* null terminate it */
-    ascii_ski_buf[sizeof(ascii_ski_buf)-1] = '\0';
 
     return
         bgpsec_load_key_from_ascii_ski(conf,

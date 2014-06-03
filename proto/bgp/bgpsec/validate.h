@@ -14,10 +14,7 @@
 #define _BIRD_VALIDATE_H_
 
 #include <stdint.h>
-#include <openssl/x509.h>
-#include <openssl/pem.h>
-#include <openssl/ecdsa.h>
-#include <openssl/err.h>
+#include <openssl/evp.h>
 
 #include "nest/route.h"
 #include "../bgp.h"
@@ -26,15 +23,11 @@
 #define DEFAULT_KEY_REPO_PATH "/usr/share/bird/bgpsec-keys"
 
 /*
- * structure to store keying data in; we create a generic union until
- * we know what type of key we actually want to make the routines generic
+ * Structure to store keying data in. This used to be a union, but
+ * since we should be using EVP_PKEY everywhere it's now just a wrapper.
  */
-typedef union {
-   X509     *x509_public;
-   EVP_PKEY *x509_private;
-
-   EC_KEY   *ecdsa_key;
-   X509     *the_key;
+typedef struct {
+   EVP_PKEY *pkey;
 } bgpsec_key_data;
 
 /* Generic error codes */
