@@ -506,7 +506,8 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                 {
                   byte   *recent_sig = bptr + sig_len + (2 * (BGPSEC_SKI_LENGTH + 2));
                   u16 recent_sig_len = get_u16(recent_sig - 2);
-                  
+                  u32     signers_as = get_u32(spptr);
+
                   put_u32(hashbuff, target_as);
                   /* signer's AS, pcount, and flags */
                   memcpy(hashbuff+4, spptr, 6);
@@ -517,7 +518,7 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                        (bgp->cf,
                         hashbuff, (recent_sig_len + 10),
                         bptr, BGPSEC_SKI_LENGTH,
-                        algo_id,
+                        signers_as, algo_id,
                         (bptr + BGPSEC_SKI_LENGTH + 2), sig_len)
                        )
                     {
@@ -546,6 +547,8 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                   log(L_DEBUG "bgpsec_decode:%d<%d: using NLRI %I/%d\n",
                       bgp->local_as, bgp->remote_as, prefix, pxlen);
                   
+		  u32 signers_as = get_u32(spptr);
+
                   put_u32(hashbuff, target_as);
                   /* signer's AS, pcount, and flags */
                   memcpy((hashbuff+4),   spptr, 6);
@@ -560,7 +563,7 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                        (bgp->cf,
                         hashbuff, (12 + prefix_bytes),
                         bptr, BGPSEC_SKI_LENGTH,
-                        algo_id,
+			signers_as, algo_id,
                         (bptr + BGPSEC_SKI_LENGTH + 2), sig_len)
                        )
                     {
@@ -963,7 +966,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
 						   hashbuff, (12 + px_bytes), 
 						   conn->bgp->cf->bgpsec_ski,
 						   strlen(conn->bgp->cf->bgpsec_ski),
-						   BGPSEC_ALGO_ID, 
+						   las, BGPSEC_ALGO_ID, 
 						   sigbuff, BGPSEC_MAX_SIG_LENGTH);
       if ( 1 >= sig_length )
 	{
@@ -972,12 +975,13 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	  return -1;
 	}    
 
+      /* XXX basic debug check of validation, CAN BE REMOVED/COMMENT OUT */
       if ( BGPSEC_SIGNATURE_MATCH != 
 	   bgpsec_verify_signature_with_ascii_ski
 	   (conn->bgp->cf,
 	    hashbuff, (12 + px_bytes),
 	    conn->bgp->cf->bgpsec_ski, strlen(conn->bgp->cf->bgpsec_ski),
-	    BGPSEC_ALGO_ID, 
+	    las, BGPSEC_ALGO_ID, 
 	    sigbuff, sig_length) )
 	{
 	  log(L_ERR "bgpsec_sign:%d>%d:o: SIGN CHECK FAILED: paths are very twisty",
@@ -1112,7 +1116,7 @@ bgpsec_sign(struct  bgp_conn  *conn,
 						   hashbuff, (old_sig_len + 10), 
 						   conn->bgp->cf->bgpsec_ski,
 						   strlen(conn->bgp->cf->bgpsec_ski),
-						   BGPSEC_ALGO_ID,
+						   las, BGPSEC_ALGO_ID,
 						   sigbuff, BGPSEC_MAX_SIG_LENGTH);
       if ( 1 >= sig_length )
 	{
@@ -1121,12 +1125,13 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	  return -1;
 	}    
 
+      /* XXX basic debug check of validation, CAN BE REMOVED/COMMENT OUT */
       if ( BGPSEC_SIGNATURE_MATCH != 
 	   bgpsec_verify_signature_with_ascii_ski
 	   (conn->bgp->cf,
 	    hashbuff, (old_sig_len + 10),
 	    conn->bgp->cf->bgpsec_ski, strlen(conn->bgp->cf->bgpsec_ski),
-	    BGPSEC_ALGO_ID, 
+	    las, BGPSEC_ALGO_ID, 
 	    sigbuff, sig_length) )
 	{
 	  log(L_ERR "bgpsec_sign:%d>%d:no: SIGN CHECK FAILED: paths are very twisty",

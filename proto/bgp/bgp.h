@@ -47,7 +47,8 @@ struct bgp_config {
     /* XXX BGPSec XXX*/
   int enable_bgpsec;                    /* Whether neighbor should be a BGPSec peer */
   char *bgpsec_ski;                     /* local subject key id */
-  char *bgpsec_key_repo_path;           /* Path to the key repository */
+  char *bgpsec_key_repo_path;           /* Path to the public key repository */
+  char *bgpsec_priv_key_path;           /* Path to the private key location */
   int bgpsec_save_binary_keys;          /* Save a copy of the binary key */
   int bgpsec_no_pcount0;                /* allow peer to have pcount 0, xxx current default allows */
   int bgpsec_confed;                    /* is this peer a confederation member */

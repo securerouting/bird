@@ -35,6 +35,7 @@ CF_KEYWORDS(BGP, LOCAL, NEIGHBOR, AS, HOLD, TIME, CONNECT, RETRY,
 	INTERPRET, COMMUNITIES, BGP_ORIGINATOR_ID, BGP_CLUSTER_LIST, IGP,
 	TABLE, GATEWAY, DIRECT, RECURSIVE, MED, TTL, SECURITY, DETERMINISTIC, 
         SECONDARY, BGPSEC, BGPSEC_SKI, BGPSEC_KEY_REPO_PATH,
+        BGPSEC_PRIV_KEY_PATH,
 	BGPSEC_SAVE_BINARY_KEYS, BGPSEC_NO_PCOUNT0, BGPSEC_CONFED, 
         BGPSEC_CONFED_VALIDATE, BGPSEC_NO_INVALID_ROUTES)
 
@@ -132,6 +133,7 @@ bgp_proto:
  | bgp_proto BGPSEC_NO_INVALID_ROUTES bool ';' { BGP_CFG->bgpsec_no_invalid_routes = $3; }
  | bgp_proto BGPSEC_SKI TEXT ';' { BGP_CFG->bgpsec_ski = $3; }
  | bgp_proto BGPSEC_KEY_REPO_PATH TEXT ';' { BGP_CFG->bgpsec_key_repo_path = $3; }
+ | bgp_proto BGPSEC_PRIV_KEY_PATH TEXT ';' { BGP_CFG->bgpsec_priv_key_path = $3; }
  | bgp_proto BGPSEC_SAVE_BINARY_KEYS bool ';' { BGP_CFG->bgpsec_save_binary_keys = $3; }
  | bgp_proto BGPSEC_NO_PCOUNT0 bool ';' { BGP_CFG->bgpsec_no_pcount0 = $3; }
  ;

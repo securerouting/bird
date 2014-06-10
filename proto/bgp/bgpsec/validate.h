@@ -68,12 +68,14 @@ typedef struct {
 int bgpsec_sign_data_with_ascii_ski(struct bgp_config *conf,
                                     byte *octets, int octets_len,
                                     char *ski, size_t ski_len,
+				    int asn,
                                     int algorithm, byte *signature,
                                     int in_signature_len);
 
 int bgpsec_sign_data_with_bin_ski(struct bgp_config *conf,
                                   byte *octets, int octets_len,
                                   char *ski, size_t ski_len,
+				  int asn,
                                   int algorithm, byte *signature,
                                   int in_signature_len);
 
@@ -118,6 +120,7 @@ int bgpsec_verify_signature_with_cert(struct bgp_config *conf,
 int bgpsec_verify_signature_with_ascii_ski(struct bgp_config *conf,
                                            byte *octets, int octets_len,
                                            char *ski, size_t ski_len,
+					   int asn,
                                            int signature_algorithm,
                                            byte *signature, int signature_len);
 
@@ -127,6 +130,7 @@ int bgpsec_verify_signature_with_ascii_ski(struct bgp_config *conf,
 int bgpsec_verify_signature_with_bin_ski(struct bgp_config *conf,
                                          byte *octets, int octets_len,
                                          char *ski, size_t ski_len,
+					 int asn,
                                          int signature_algorithm,
                                          byte *signature, int signature_len);
 
@@ -161,6 +165,7 @@ int bgpsec_load_key(struct bgp_config *conf,
 
 char *generate_ski_filename(char *filenamebuf, size_t filenamebufLen,
                             const char *rootPath,
-                            const char *ski, size_t skiLen);
+                            const char *ski, size_t skiLen,
+			    int asn);
 
 #endif 
