@@ -522,8 +522,6 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                         (bptr + BGPSEC_SKI_LENGTH + 2), sig_len)
                        )
                     {
-                      /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
-                         BGPSEC_SIGNATURE_MISMATCH */
                       log(L_WARN "bgpsec_decode:%d<%d:no: bad signature, ignoring",
                           bgp->local_as, bgp->remote_as);
                       return IGNORE;
@@ -567,8 +565,6 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
                         (bptr + BGPSEC_SKI_LENGTH + 2), sig_len)
                        )
                     {
-                      /* XXX handle difference between BGPSEC_SIGNATURE_ERROR
-                         BGPSEC_SIGNATURE_MISMATCH */
                       log(L_WARN "bgpsec_decode:%d<%d:o: bad signature, ignoring",
                           bgp->local_as, bgp->remote_as);
                       return IGNORE;

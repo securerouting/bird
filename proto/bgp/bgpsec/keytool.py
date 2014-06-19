@@ -24,7 +24,8 @@ import argparse
 import subprocess
 
 
-default_keydir = os.getenv("BGPSEC_KEYDIR", ".")
+default_public_key_dir  = os.getenv("BGPSEC_PUBLIC_KEY_DIR",  "/usr/share/bird/bgpsec-keys")
+default_private_key_dir = os.getenv("BGPSEC_PRIVATE_KEY_DIR", "/usr/share/bird/bgpsec-private-keys")
 
 
 class OpenSSLPipeline(object):
@@ -56,33 +57,35 @@ class OpenSSLPipeline(object):
     return output
 
 
-def filename(args, skihex, suffix = ""):
-  if args.simple_filenames:
-    return "%s/%s%s" % (args.keydir, skihex, suffix)
+def public_filename(args, skihex):
+  """
+  Figure out what the filename for a key should be, and create the
+  containing directory if it doesn't already exist.
+  """
+
+  if args.complex_filenames:
+    fn = "%s/%s/%s/%s.key" % (args.public_key_dir, skihex[:2], skihex[2:6], skihex[6:])
   else:
-    return "%s/%s/%s/%s%s" % (args.keydir, skihex[:2], skihex[2:6], skihex[6:], suffix)
-
-
-def makedir(args, skihex):
-  dn = os.path.dirname(filename(args, skihex))
+    fn = "%s/%s.key" % (args.public_key_dir, skihex)
+  dn = os.path.dirname(fn)
   if not os.path.isdir(dn):
     if args.verbose:
       print "Creating directory", dn
     os.makedirs(dn)
-
+  return fn
 
 def generate(args):
   """
-  Generate an EC keypair, store in .private and .pub files named using
-  the key's SKI value to generate the filenames.
-
-  This code goes through some silly gymnastics using the old OpenSSL
-  ecparam command instead of using the newer OpenSSL genpkey command,
-  because we have to force the key into the required namedCurve form
-  instead of explicitCurve.  OpenSSL itself doesn't much care, but
-  since the SKI is defined as the SHA1 hash of the binary key value,
-  using the wrong key encoding yields the wrong SKI value.
+  Generate an EC keypair, store in .key files named using the key's
+  SKI value to generate the filenames.
   """
+
+  # We go through some silly gymnastics using the old OpenSSL ecparam
+  # command instead of using the newer OpenSSL genpkey command,
+  # because we have to force the key into the required namedCurve form
+  # instead of explicitCurve.  OpenSSL itself doesn't much care, but
+  # since the SKI is defined as the SHA1 hash of the binary key value,
+  # using the wrong key encoding yields the wrong SKI value.
 
   openssl = OpenSSLPipeline(args)
   pemkey = openssl(("ecparam", "-name", "prime256v1"),
@@ -95,13 +98,12 @@ def generate(args):
   skihex = skihex.split()[-1].upper()
   if args.printski:
     print skihex
-  makedir(args, skihex)
-  fn = filename(args, skihex, ".pub")
+  fn = public_filename(args, skihex)
   if args.verbose:
     print "Writing", fn
   openssl(("pkey", "-outform", "DER", "-out", fn, "-pubout"), input = pemkey)
   os.umask(077)
-  fn = filename(args, skihex, ".private")
+  fn = "%s/%s.key" % (args.private_key_dir, skihex)
   if args.verbose:
     print "Writing", fn
   openssl(("pkey", "-outform", "DER", "-out", fn), input = pemkey)
@@ -109,8 +111,9 @@ def generate(args):
 
 def hashdir(args):
   """
-  Extract router keys from certificates in an RPKI certificate tree, store as .pub
-  files using each key's SKI value to generate the corresponding filename.
+  Extract router keys from certificates in an RPKI certificate tree,
+  store as .key files using each key's SKI value to generate the
+  corresponding filename.
   """
 
   openssl = OpenSSLPipeline(args)
@@ -129,8 +132,7 @@ def hashdir(args):
           checkski = checkski.split()[-1].upper()
           if skihex != checkski:
             sys.stderr.write("SKI %s in certificate %s does not match calculated SKI %s\n" % (skihex, fn, checkski))
-        makedir(args, skihex)
-        outfn = filename(args, skihex, ".pub")
+        outfn = public_filename(args, skihex)
         if args.verbose:
           print "Writing", outfn
         openssl(("x509", "-inform", "DER", "-noout", "-pubkey", "-in", fn),
@@ -142,12 +144,15 @@ def main():
   parser.add_argument("--openssl-binary",
                       default = "openssl",
                       help = "Path to EC-capable OpenSSL binary")
-  parser.add_argument("--keydir",
-                      default = default_keydir,
-                      help = "directory to which we save router keys")
-  parser.add_argument("--simple-filenames",
+  parser.add_argument("--public-key-dir",
+                      default = default_public_key_dir,
+                      help = "directory to which we save parsed router keys")
+  parser.add_argument("--private-key-dir",
+                      default = default_private_key_dir,
+                      help = "directory to which we save generated private keys")
+  parser.add_argument("--complex-filenames",
                       action = "store_true",
-                      help = "don't use aa/bbcc/ddeeff... filenames")
+                      help = "use aa/bbcc/ddeeff... filenames")
   parser.add_argument("--verbose",
                       action = "store_true",
                       help = "whistle while you work")
@@ -163,8 +168,8 @@ def main():
                                     description = generate.__doc__,
                                     help = "generate new keypair")
   subparser.set_defaults(func = generate)
-  #subparser.add_argument("router_id")
-  #subparser.add_argument("asns", nargs = "+")
+  subparser.add_argument("router_id", nargs = "?")
+  subparser.add_argument("asns", nargs = "*")
   subparser = subparsers.add_parser("hashdir",
                                     description = hashdir.__doc__,
                                     help = "hash directory of certs")

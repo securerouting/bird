@@ -87,11 +87,11 @@ int main(int argc, char **argv) {
 
             /* generate a signature using a certificate */
             signature_len =
-                bgpsec_sign_data_with_cert(&bgpconfig,
-                                           data_to_sign, sizeof(data_to_sign),
-                                           key_data,
-                                           signature_algorithms[algorithm_count],
-                                           signature, sizeof(signature));
+                bgpsec_sign_data_with_key(&bgpconfig,
+					  data_to_sign, sizeof(data_to_sign),
+					  key_data,
+					  signature_algorithms[algorithm_count],
+					  signature, sizeof(signature));
 
             RESULT(("cert sign: algorithm %d, signature length (%d) is not negative",
                     signature_algorithms[algorithm_count], signature_len),
@@ -103,21 +103,21 @@ int main(int argc, char **argv) {
             EC_KEY_set_private_key(key_data.ecdsa_key, &newbignum);
 
             /* verify that the signature matches */
-            ret = bgpsec_verify_signature_with_cert(&bgpconfig, data_to_sign,
-                                                    sizeof(data_to_sign),
-                                                    key_data,
-                                                    signature_algorithms[algorithm_count],
-                                                    signature, signature_len);
+            ret = bgpsec_verify_signature_with_key(&bgpconfig, data_to_sign,
+						   sizeof(data_to_sign),
+						   key_data,
+						   signature_algorithms[algorithm_count],
+						   signature, signature_len);
             RESULT(("cert sign: verify signature result: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MATCH),
                    ret == BGPSEC_SIGNATURE_MATCH);
 
             /* verify that the signature matches */
-            ret = bgpsec_verify_signature_with_cert(&bgpconfig, data_to_sign,
-                                                    sizeof(data_to_sign),
-                                                    key_data,
-                                                    signature_algorithms[algorithm_count],
-                                                    signature, signature_len);
+            ret = bgpsec_verify_signature_with_key(&bgpconfig, data_to_sign,
+						   sizeof(data_to_sign),
+						   key_data,
+						   signature_algorithms[algorithm_count],
+						   signature, signature_len);
             RESULT(("cert sign: verify signature result2: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MATCH),
                    ret == BGPSEC_SIGNATURE_MATCH);
@@ -129,12 +129,12 @@ int main(int argc, char **argv) {
             EC_POINT_free(new_point);
 
             /* verify that the signature no longer matches */
-            ret = bgpsec_verify_signature_with_cert(&bgpconfig,
-                                                    data_to_sign,
-                                                    sizeof(data_to_sign),
-                                                    key_data,
-                                                    signature_algorithms[algorithm_count],
-                                                    signature, signature_len);
+            ret = bgpsec_verify_signature_with_key(&bgpconfig,
+						   data_to_sign,
+						   sizeof(data_to_sign),
+						   key_data,
+						   signature_algorithms[algorithm_count],
+						   signature, signature_len);
             RESULT(("cert sign: verify signature fail result: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MISMATCH),
                    ret == BGPSEC_SIGNATURE_MISMATCH);
@@ -150,12 +150,12 @@ int main(int argc, char **argv) {
                     ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
 
             /* verify that the signature matches again with the loaded key */
-            ret = bgpsec_verify_signature_with_cert(&bgpconfig,
-                                                    data_to_sign,
-                                                    sizeof(data_to_sign),
-                                                    key_data,
-                                                    signature_algorithms[algorithm_count],
-                                                    signature, signature_len);
+            ret = bgpsec_verify_signature_with_key(&bgpconfig,
+						   data_to_sign,
+						   sizeof(data_to_sign),
+						   key_data,
+						   signature_algorithms[algorithm_count],
+						   signature, signature_len);
             RESULT(("cert sign: verify signature result of generated bin key: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MATCH),
                    ret == BGPSEC_SIGNATURE_MATCH);
@@ -171,12 +171,12 @@ int main(int argc, char **argv) {
                     ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
             /* verify that the signature matches again with the loaded key */
-            ret = bgpsec_verify_signature_with_cert(&bgpconfig,
-                                                    data_to_sign,
-                                                    sizeof(data_to_sign),
-                                                    key_data,
-                                                    signature_algorithms[algorithm_count],
-                                                    signature, signature_len);
+            ret = bgpsec_verify_signature_with_key(&bgpconfig,
+						   data_to_sign,
+						   sizeof(data_to_sign),
+						   key_data,
+						   signature_algorithms[algorithm_count],
+						   signature, signature_len);
             RESULT(("cert sign: verify signature result of non-bin: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MATCH),
                    ret == BGPSEC_SIGNATURE_MATCH);
@@ -193,12 +193,12 @@ int main(int argc, char **argv) {
                     ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
             /* verify that the signature matches again with the public key */
-            ret = bgpsec_verify_signature_with_cert(&bgpconfig,
-                                                    data_to_sign,
-                                                    sizeof(data_to_sign),
-                                                    key_data,
-                                                    signature_algorithms[algorithm_count],
-                                                    signature, signature_len);
+            ret = bgpsec_verify_signature_with_key(&bgpconfig,
+						   data_to_sign,
+						   sizeof(data_to_sign),
+						   key_data,
+						   signature_algorithms[algorithm_count],
+						   signature, signature_len);
             RESULT(("cert sign: verify (pub) signature result: %d (should be %d)",
                     ret, BGPSEC_SIGNATURE_MATCH),
                    ret == BGPSEC_SIGNATURE_MATCH);
@@ -259,12 +259,12 @@ int main(int argc, char **argv) {
                         ret, BGPSEC_SUCCESS), ret == BGPSEC_SUCCESS);
         
                 /* verify that the signature matches again with the loaded key */
-                ret = bgpsec_verify_signature_with_cert(&bgpconfig,
-                                                        data_to_sign,
-                                                        sizeof(data_to_sign),
-                                                        key_data,
-                                                        signature_algorithms[algorithm_count],
-                                                        signature, signature_len);
+                ret = bgpsec_verify_signature_with_key(&bgpconfig,
+						       data_to_sign,
+						       sizeof(data_to_sign),
+						       key_data,
+						       signature_algorithms[algorithm_count],
+						       signature, signature_len);
                 RESULT(("cert sign: verify signature result of binary-only: %d (should be %d)",
                         ret, BGPSEC_SIGNATURE_MATCH),
                        ret == BGPSEC_SIGNATURE_MATCH);

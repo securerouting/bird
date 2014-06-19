@@ -12,21 +12,18 @@
 
 #include "bgpsec.h"
 
-void bgpsec_init(void) { }
-void bgpsec_start(void) { }
-void bgpsec_shutdown(void) { }
-void bgpsec_cleanup(void) { }
-void bgpsec_reconfigure(void) { }
-void bgpsec_copy_config(void) { }
-void bgpsec_get_status(void) { }
-void bgpsec_get_attr(void) { }
-void bgpsec_get_route_info(void) { }
-void bgpsec_show_proto_info(void) { }
+struct proto *	bgpsec_init(struct proto_config *c)					{}
+int		bgpsec_start(struct proto *p)						{}
+int		bgpsec_shutdown(struct proto *p)					{}
+void		bgpsec_cleanup(struct proto *p)						{}
+int		bgpsec_reconfigure(struct proto *p, struct proto_config *pc)		{}
+void		bgpsec_copy_config(struct proto_config *pc1, struct proto_config *pc2)	{}
+void		bgpsec_get_status(struct proto *p, byte *buf)				{}
+int		bgpsec_get_attr(struct eattr *a, byte *buf, int buflen)			{}
+void		bgpsec_get_route_info(struct rte *r, byte *buf, struct ea_list *attrs)	{}
+void		bgpsec_show_proto_info(struct proto *p) {}
 
-void
-bgpsec_check_config(struct bgpsec_config *c)
-{
-}
+void		bgpsec_check_config(struct bgpsec_config *c)				{}
 
 struct protocol proto_bgpsec = {
   name:			"BGPSEC",
