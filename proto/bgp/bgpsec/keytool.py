@@ -24,6 +24,7 @@ import argparse
 import subprocess
 
 
+default_openssl_binary  = os.getenv("BGPSEC_OPENSSL_BINARY",  "openssl")
 default_public_key_dir  = os.getenv("BGPSEC_PUBLIC_KEY_DIR",  "/usr/share/bird/bgpsec-keys")
 default_private_key_dir = os.getenv("BGPSEC_PRIVATE_KEY_DIR", "/usr/share/bird/bgpsec-private-keys")
 
@@ -57,22 +58,25 @@ class OpenSSLPipeline(object):
     return output
 
 
-def public_filename(args, skihex):
+def public_filename(args, asn, skihex):
   """
   Figure out what the filename for a key should be, and create the
   containing directory if it doesn't already exist.
   """
 
-  if args.complex_filenames:
-    fn = "%s/%s/%s/%s.key" % (args.public_key_dir, skihex[:2], skihex[2:6], skihex[6:])
+  for n in xrange(args.max_ski_collisions):
+    fn = "%s/%s.%s.%s.key" % (args.public_key_dir, asn, skihex, n)
+    if args.skip_collision_check or not os.path.exists(fn):
+      break
   else:
-    fn = "%s/%s.key" % (args.public_key_dir, skihex)
+    sys.exit("Too many SKI collisions for ASN %s SKI %s" % (asn, skihex))
   dn = os.path.dirname(fn)
   if not os.path.isdir(dn):
     if args.verbose:
       print "Creating directory", dn
     os.makedirs(dn)
   return fn
+
 
 def generate(args):
   """
@@ -98,15 +102,25 @@ def generate(args):
   skihex = skihex.split()[-1].upper()
   if args.printski:
     print skihex
-  fn = public_filename(args, skihex)
+  fn = public_filename(args, args.asns[0], skihex)
   if args.verbose:
     print "Writing", fn
   openssl(("pkey", "-outform", "DER", "-out", fn, "-pubout"), input = pemkey)
+  for asn in args.asns[1:]:
+    ln = public_filename(args, asn, skihex)
+    if args.verbose:
+      print "Linking", ln
+    os.link(fn, ln)
   os.umask(077)
-  fn = "%s/%s.key" % (args.private_key_dir, skihex)
+  fn = "%s/%s.%s.key" % (args.private_key_dir, args.asns[0], skihex)
   if args.verbose:
     print "Writing", fn
   openssl(("pkey", "-outform", "DER", "-out", fn), input = pemkey)
+  for asn in args.asns[1:]:
+    ln = "%s/%s.%s.key" % (args.private_key_dir, asn, skihex)
+    if args.verbose:
+      print "Linking", ln
+    os.link(fn, ln)
 
 
 def hashdir(args):
@@ -124,6 +138,8 @@ def hashdir(args):
         text = openssl(("x509", "-inform", "DER", "-noout", "-text", "-in", fn))
         if "Public Key Algorithm: id-ecPublicKey" not in text or "ASN1 OID: prime256v1" not in text:
           continue
+        if args.verbose:
+          print "Examining", fn
         skihex = text[text.index("X509v3 Subject Key Identifier:"):].splitlines()[1].strip().replace(":", "").upper()
         if args.paranoia:
           checkski = openssl(("x509", "-inform", "DER", "-noout", "-pubkey", "-in", fn),
@@ -132,17 +148,31 @@ def hashdir(args):
           checkski = checkski.split()[-1].upper()
           if skihex != checkski:
             sys.stderr.write("SKI %s in certificate %s does not match calculated SKI %s\n" % (skihex, fn, checkski))
-        outfn = public_filename(args, skihex)
+        asns = []
+        b = text.index("Autonomous System Numbers:")
+        e = text.index("\n\n", b)
+        for line in text[b:e].splitlines()[1:]:
+          b, _, e = line.strip().partition("-")
+          if e == "":
+            asns.append(int(b))
+          else:
+            asns.extend(xrange(int(b), int(e) + 1))
+        outfn = public_filename(args, asns[0], skihex)
         if args.verbose:
           print "Writing", outfn
         openssl(("x509", "-inform", "DER", "-noout", "-pubkey", "-in", fn),
                 ("pkey", "-pubin", "-outform", "DER", "-out", outfn))
+        for asn in asns[1:]:
+          ln = public_filename(args, asn, skihex)
+          if args.verbose:
+            print "Linking", ln
+          os.link(outfn, ln)
 
 
 def main():
   parser = argparse.ArgumentParser(description = __doc__)
   parser.add_argument("--openssl-binary",
-                      default = "openssl",
+                      default = default_openssl_binary,
                       help = "Path to EC-capable OpenSSL binary")
   parser.add_argument("--public-key-dir",
                       default = default_public_key_dir,
@@ -150,9 +180,6 @@ def main():
   parser.add_argument("--private-key-dir",
                       default = default_private_key_dir,
                       help = "directory to which we save generated private keys")
-  parser.add_argument("--complex-filenames",
-                      action = "store_true",
-                      help = "use aa/bbcc/ddeeff... filenames")
   parser.add_argument("--verbose",
                       action = "store_true",
                       help = "whistle while you work")
@@ -162,14 +189,24 @@ def main():
   parser.add_argument("--paranoia",
                       action = "store_true",
                       help = "perform paranoid checks")
+  parser.add_argument("--max-ski-collisions",
+                      type = int,
+                      default = 3,
+                      help = "maximum number of SKI collisions to allow when writing public keys")
+  parser.add_argument("--skip-collision-check",
+                      action = "store_true",
+                      help = "don't check for SKI collisions")
   subparsers = parser.add_subparsers(title = "Commands",
                                      metavar = "")
   subparser = subparsers.add_parser("generate",
                                     description = generate.__doc__,
                                     help = "generate new keypair")
   subparser.set_defaults(func = generate)
-  subparser.add_argument("router_id", nargs = "?")
-  subparser.add_argument("asns", nargs = "*")
+  subparser.add_argument("--router-id",
+                         type = int)
+  subparser.add_argument("asns",
+                         nargs = "+",
+                         type = int)
   subparser = subparsers.add_parser("hashdir",
                                     description = hashdir.__doc__,
                                     help = "hash directory of certs")
@@ -177,6 +214,7 @@ def main():
   subparser.add_argument("cert_dir")
   args = parser.parse_args()
   return args.func(args)
+
 
 if __name__ == "__main__":
   sys.exit(main())
