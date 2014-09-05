@@ -1,5 +1,6 @@
 #include "validate.h"
 #include <sys/param.h>
+#include <openssl/ec.h>
 
 #define HEADER(msg)       printf("--------------- " msg "\n");
 #define HEADER1(msg, arg) printf("--------------- " msg "\n", arg);

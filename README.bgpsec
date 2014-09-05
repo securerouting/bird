@@ -40,7 +40,8 @@ This describes building bird with BGPSEC support turned on, which
 requires a few steps.  Contents
 
     2.1 Dependencies
-        2.1.1 Use A Complete OpenSSL version
+        2.1.1 Use An OpenSSL version that supports ECDSA (Elliptic
+              Curve Digital Signature Algorithm)
     2.2 Building Bird
         2.2.1 Configuring and Compiling
     2.3 Testing
@@ -51,20 +52,23 @@ requires a few steps.  Contents
 2.1 Dependencies
 
 On Fedora, you'll want flex, bison, and readline-devel packages.
-Use A Complete OpenSSL version
+
+2.1.1 Use an OpenSSL version that supports ECDSA (Elliptic Curve
+      Digital Signature Algorithm)
 
 The default OpenSSL distributed by many Linux vendors does not include
 elliptic curve support.  If yours distribution does not support
 elliptic curve in the OpenSSL libraries, you'll need to grab a fresh
-copy and compile it by hand. You may want to install it in a
-particular location, so use the Configure flag to do this:
+copy and compile it by hand. You may want to install it in a location
+separate from the normally installed package. Use the --prefix option
+to do this:
 
- # ./Configure --prefix=/usr/local/openssl-ecdsa
+ # ./config --prefix=/usr/local/openssl-ecdsa
 
 Then make and make install
 
-Note: Fedora 16 openssl RPMs with ecdsa support and an openssl source
-tar ball are available at:
+Note: Fedora (16,17) openssl RPMs and SRPM (17) with ecdsa support and
+an openssl source tar ball are available at:
 
 http://bgpsec.tislabs.com/openssl-ecdsa/
 
@@ -81,7 +85,6 @@ http://bird.network.cz/
  # cd bird-1.3.9/
  # patch -p1 < PATH-TO/BIRD-bgpsec-patch-v1.3.9.diff 
 
-Or pull a fresh copy from our git repo.
 
 Build it.
 First rebuild configure (configure.in was changed by the patch):
@@ -90,66 +93,46 @@ First rebuild configure (configure.in was changed by the patch):
 
 Then Use configure flags that look something like the following. In
 particular the paths for -I/usr/local/openssl-ecdsa/include and
--L/usr/local/openssl-ecdsa/lib are necessary to compile with a openssl
-install with ecdsa support.  These arguments will change and may not
-be necessary depending on if you needed to install ecdsa supporting
-openssl and where you installed it:
+-L/usr/local/openssl-ecdsa/lib are necessary to compile if you have a
+ecdsa supporting openssl installed in a non-standard location on your
+platform.  The OpenSSL arguments will change and may not be necessary
+depending on if you needed to install a ecdsa supporting openssl and
+where you installed it:
 
  # ./configure '--enable-bgpsec' 'CFLAGS=-I/usr/local/openssl-ecdsa/include -g' 'LDFLAGS=-L/usr/local/openssl-ecdsa/lib/'
 
 Then make and you should be good to go.
 
 
-2.3 Testing
+2.3 Using It
 
-Some of the crypto parts of the code have a test suite you can run to verify it's working properly:
-
- # cd obj && make -C proto/bgp/bgpsec/ -f ../../../../proto/bgp/bgpsec/Makefile tests
- # cd obj && proto/bgp/bgpsec/tests
- 
-   Testing:
-      ok:   65: cert sign: loaded the router key from tmp file: /tmp/bgpsec-keys/6DC9A40C5702405BAF311ED3185B02E67E18A9E7
-      ok:   77: cert sign: algorithm 1, signature length (72) is not negative
-      ok:   78: cert sign: algorithm 1, signature length (72) has at least a byte
-      ok:   92: cert sign: verify signature result: 0 (should be 0)
-      ok:  108: cert sign: verify signature fail result: 2 (should be 2)
-      ok:  117: cert sign: loading key function returned: 0 (should be 0)
-      ok:  127: cert sign: verify signature result: 0 (should be 0)
-      ok:  136: cert sign: loading public key function returned: 0 (should be 0)
-      ok:  146: cert sign: verify (pub) signature result: 0 (should be 0)
-      ok:  159: ski sign:   algorithm 1, signature length (72) is not negative
-      ok:  160: ski sign:   algorithm 1, signature length (72) has at least a byte
-      ok:  171: ski sign:   verify signature result: 0 (should be 0)
-    
- Results:
-   Good: 12
-    Bad: 0
-
-
-2.4 Using It
-
-You can create key pairs using the proto/bgp/bgpsec/gen-router-key
+You can create key pairs using the proto/bgp/bgpsec/keytool.py
 script.  For Example:
 
- # proto/bgp/bgpsec/gen-router-key -d /usr/share/bird/bgpsec-keys -p -c proto/bgp/bgpsec/router-key.cnf
+# proto/bgp/bgpsec/keytool.py --printski --public-key-dir /usr/share/bird/bgpsec-keys --private-key-dir /usr/share/bird/bgpsec-private-keys generate 'ASN'
  40C70252FE48D29401E9156ADBECF3EF42296AE4
 
-The generated certificate, private key and the CSR are stored in the
-directory structure under '/usr/share/bird/bgpsec-keys' using the SKI
-value, '40C70252FE48D29401E9156ADBECF3EF42296AE4', as a part of the
-directory names and file names of the keys (by default).
+Where ASN is the AS number for the key you are generating.
+
+The generated public key is stored in '--public-key-dir' (default
+/usr/share/bird/bgpsec-keys) and the private key is stored in
+'--private-key-dir' (default /usr/share/bird/bgpsec-private-keys).
+The file names are based on the AS number and the SKI value associated
+with the keys, 'ASN.SKI#', e.g. for an ASN of 12345,
+12345.40C70252FE48D29401E9156ADBECF3EF42296AE4.
 
 The public key can be copied to other machines and placed in the same
-directories/filename without the private key. Likewise, keys from
-other routers can be placed into the above directory with their SKI
-identifying the directories/filenames in order for the validation
+public key directory without the private key. Likewise, keys from
+other routers can be placed into the public key directory with their
+ASN/SKI identifying the file names in order for the validation
 routines to look them up.
 
-NOTE: in the future, this will be changed to use certificates or to
-use the -rtr protocol instead to pull router keys.
+NOTE: in the future, to use the -rtr protocol instead to pull router
+keys.  The file names will also likely be part of a directory
+structure as well (.e.g ASN/4-digit/2-digit/Rest-of-SKI).
 
 
-2.5 Coding For It
+2.4 Coding For It
 
 The API for use in validating stuff can be found in
 proto/bgp/bgpsec/validate.h. But most importantly, these two functions
@@ -159,8 +142,9 @@ will be of the most use:
  int bgpsec_verify_signature_with_ski(...);
 
 As they sign and verify data simply by passing the data along with a
-SKI in ascii/hex form (in reality, it's just the filename from above
-so as long as it can be stored in a file name it's usable).
+SKI in ascii/hex form and a ASN integer (in reality, it's just the
+filename from above so as long as it can be stored in a file name it's
+usable).
 
 The algorithm option should be set to
 BGPSEC_ALGORITHM_SHA256_ECDSA_P_256 or BGPSEC_DEFAULT_CURVE.
@@ -185,14 +169,11 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          # this connection.
          bgpsec_ski "8CA56CF0A4D943ACCEB9CB67967561CA8A773B73" ;
 
-	 # The local directory path to router key storage. Default is
-         #  below:
-         bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
+	 # The local directory paths for the public router key and private
+         # key storage. The defaults are below:
 
-	 # Once processed, save used crypto keys in binary.  This
-         # should speed up future authentication with those keys.
-         # Defaults to off.
-         bgpsec_save_binary_keys 0;
+         bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
+	 bgpsec_private_key_path "/usr/share/bird/bgpsec-private-keys" ;
 
 	 # Do not allow the peer to set its pcount to 0.  Default is
          # true.  Set this value to false/0 if you want to allow your
