@@ -2,7 +2,8 @@
   1. BGPSEC patch
   2. Installation Instructions:
   3. BIRD run time configuration
-  4. License(s)
+  4. Getting RPKI-RTR date (ROA's and Router Keys)
+  5. License(s)
 
 
 1. BGPSEC patch
@@ -195,7 +196,18 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
   }
 
 
-4. License(s)
+4. Getting RPKI-RTR date (ROA's and Router Keys)
+
+BGPSEC-BIRD-client is a separate application that is provided in order
+to pull data from a rpki-rtr using rtrLib.  It can garner Router
+Origin Authorizations (ROAs) from a rpki-rtr and populate BIRD's ROA
+tables in order to filter for Origin Authentication.  It can get
+router public keys and place them in the local file system for use by
+the BGPsec code.  Please see the README with that software for
+instructions on how to use it.
+
+
+5. License(s)
 
 This BGPSEC patch created by Parsons, Inc.
 
