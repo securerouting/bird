@@ -56,6 +56,7 @@ class OpenSSLPipeline(object):
       if proc.wait() != 0:
         raise subprocess.CalledProcessError(proc.returncode, argses[i][0])
     return output
+# class OpenSSLPipeline(object):
 
 
 def public_filename(args, asn, skihex):
@@ -76,6 +77,7 @@ def public_filename(args, asn, skihex):
       print "Creating directory", dn
     os.makedirs(dn)
   return fn
+# def public_filename(args, asn, skihex):
 
 
 def generate(args):
@@ -121,6 +123,7 @@ def generate(args):
     if args.verbose:
       print "Linking", ln
     os.link(fn, ln)
+# def generate(args):
 
 
 def hashdir(args):
@@ -167,6 +170,7 @@ def hashdir(args):
           if args.verbose:
             print "Linking", ln
           os.link(outfn, ln)
+# def hashdir(args):
 
 
 def main():
@@ -214,6 +218,7 @@ def main():
   subparser.add_argument("cert_dir")
   args = parser.parse_args()
   return args.func(args)
+# def main():
 
 
 if __name__ == "__main__":
