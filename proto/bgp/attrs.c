@@ -374,8 +374,11 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
   byte *bptr     = buf;
   int bgpsec_len = len;
 
-  /* used for DECODE_PREFIX, should change with changing ipv6 handling */
-  int        err = 0;
+  /* 'p', 'err', 'path_id' and goto 'done:' are used by the
+   * DECODE_PREFIX macro, defined in bgp.h */
+  struct bgp_proto *p = bgp;
+  int     err = 0;
+  u32 path_id = 0;
 
   ip_addr  prefix = 0;
   int      pxlen  = 0;
