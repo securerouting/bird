@@ -30,7 +30,15 @@
 #include "bgp.h"
 #undef sk_new /* remove the bird-specific compatability wrapper */
 
-static struct rate_limit rl_rcv_update,  rl_snd_update;
+static struct tbf rl_rcv_update = TBF_DEFAULT_LOG_LIMITS;
+static struct tbf rl_snd_update = TBF_DEFAULT_LOG_LIMITS;
+
+/* Table for state -> RFC 6608 FSM error subcodes */
+static byte fsm_err_subcode[BS_MAX] = {
+  [BS_OPENSENT] = 1,
+  [BS_OPENCONFIRM] = 2,
+  [BS_ESTABLISHED] = 3
+};
 
 /*
  * MRT Dump format is not semantically specified.
@@ -66,7 +74,7 @@ mrt_put_bgp4_hdr(byte *buf, struct bgp_conn *conn, int as4)
       buf+=4;
     }
 
-  put_u16(buf+0, p->neigh ? p->neigh->iface->index : 0);
+  put_u16(buf+0, (p->neigh && p->neigh->iface) ? p->neigh->iface->index : 0);
   put_u16(buf+2, BGP_AF);
   buf+=4;
   buf = ipa_put_addr(buf, conn->sk ? conn->sk->daddr : IPA_NONE);
@@ -123,7 +131,7 @@ bgp_create_notification(struct bgp_conn *conn, byte *buf)
 
 #ifdef IPV6
 static byte *
-bgp_put_cap_ipv6(struct bgp_conn *conn UNUSED, byte *buf)
+bgp_put_cap_ipv6(struct bgp_proto *p UNUSED, byte *buf)
 {
   *buf++ = 1;		/* Capability 1: Multiprotocol extensions */
   *buf++ = 4;		/* Capability data length */
@@ -137,7 +145,7 @@ bgp_put_cap_ipv6(struct bgp_conn *conn UNUSED, byte *buf)
 #else
 
 static byte *
-bgp_put_cap_ipv4(struct bgp_conn *conn UNUSED, byte *buf)
+bgp_put_cap_ipv4(struct bgp_proto *p UNUSED, byte *buf)
 {
   *buf++ = 1;		/* Capability 1: Multiprotocol extensions */
   *buf++ = 4;		/* Capability data length */
@@ -150,7 +158,7 @@ bgp_put_cap_ipv4(struct bgp_conn *conn UNUSED, byte *buf)
 #endif
 
 static byte *
-bgp_put_cap_rr(struct bgp_conn *conn UNUSED, byte *buf)
+bgp_put_cap_rr(struct bgp_proto *p UNUSED, byte *buf)
 {
   *buf++ = 2;		/* Capability 2: Support for route refresh */
   *buf++ = 0;		/* Capability data length */
@@ -158,11 +166,39 @@ bgp_put_cap_rr(struct bgp_conn *conn UNUSED, byte *buf)
 }
 
 static byte *
-bgp_put_cap_as4(struct bgp_conn *conn, byte *buf)
+bgp_put_cap_gr1(struct bgp_proto *p, byte *buf)
+{
+  *buf++ = 64;		/* Capability 64: Support for graceful restart */
+  *buf++ = 6;		/* Capability data length */
+
+  put_u16(buf, p->cf->gr_time);
+  if (p->p.gr_recovery)
+    buf[0] |= BGP_GRF_RESTART;
+  buf += 2;
+
+  *buf++ = 0;		/* Appropriate AF */
+  *buf++ = BGP_AF;
+  *buf++ = 1;		/* and SAFI 1 */
+  *buf++ = p->p.gr_recovery ? BGP_GRF_FORWARDING : 0;
+
+  return buf;
+}
+
+static byte *
+bgp_put_cap_gr2(struct bgp_proto *p, byte *buf)
+{
+  *buf++ = 64;		/* Capability 64: Support for graceful restart */
+  *buf++ = 2;		/* Capability data length */
+  put_u16(buf, 0);
+  return buf + 2;
+}
+
+static byte *
+bgp_put_cap_as4(struct bgp_proto *p, byte *buf)
 {
   *buf++ = 65;		/* Capability 65: Support for 4-octet AS number */
   *buf++ = 4;		/* Capability data length */
-  put_u32(buf, conn->bgp->local_as);
+  put_u32(buf, p->local_as);
   return buf + 4;
 }
 
@@ -194,6 +230,21 @@ bgp_put_cap_bgpsec(struct bgp_conn *conn UNUSED, byte *buf)
 }
 
 static byte *
+bgp_put_cap_add_path(struct bgp_proto *p, byte *buf)
+{
+  *buf++ = 69;		/* Capability 69: Support for ADD-PATH */
+  *buf++ = 4;		/* Capability data length */
+
+  *buf++ = 0;		/* Appropriate AF */
+  *buf++ = BGP_AF;
+  *buf++ = 1;		/* SAFI 1 */
+
+  *buf++ = p->cf->add_path;
+
+  return buf;
+}
+
+static byte *
 bgp_create_open(struct bgp_conn *conn, byte *buf)
 {
   struct bgp_proto *p = conn->bgp;
@@ -219,18 +270,26 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
 
 #ifndef IPV6
   if (p->cf->advertise_ipv4)
-    cap = bgp_put_cap_ipv4(conn, cap);
+    cap = bgp_put_cap_ipv4(p, cap);
 #endif
 
 #ifdef IPV6
-  cap = bgp_put_cap_ipv6(conn, cap);
+  cap = bgp_put_cap_ipv6(p, cap);
 #endif
 
   if (p->cf->enable_refresh)
-    cap = bgp_put_cap_rr(conn, cap);
+    cap = bgp_put_cap_rr(p, cap);
 
-  if (conn->want_as4_support)
-    cap = bgp_put_cap_as4(conn, cap);
+  if (p->cf->gr_mode == BGP_GR_ABLE)
+    cap = bgp_put_cap_gr1(p, cap);
+  else if (p->cf->gr_mode == BGP_GR_AWARE)
+    cap = bgp_put_cap_gr2(p, cap);
+
+  if (p->cf->enable_as4)
+    cap = bgp_put_cap_as4(p, cap);
+
+  if (p->cf->add_path)
+    cap = bgp_put_cap_add_path(p, cap);
 
   /* xxx */
   BGP_TRACE(D_PACKETS, "Add BGPSec capability? \'%d\', v%d, as4:%d",
@@ -260,10 +319,18 @@ bgp_encode_prefixes(struct bgp_proto *p, byte *w, struct bgp_bucket *buck, unsig
   ip_addr a;
   int bytes;
 
-  while (!EMPTY_LIST(buck->prefixes) && remains >= (1+sizeof(ip_addr)))
+  while (!EMPTY_LIST(buck->prefixes) && (remains >= (5+sizeof(ip_addr))))
     {
       struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
       DBG("\tDequeued route %I/%d\n", px->n.prefix, px->n.pxlen);
+
+      if (p->add_path_tx)
+	{
+	  put_u32(w, px->path_id);
+	  w += 4;
+	  remains -= 4;
+	}
+
       *w++ = px->n.pxlen;
       bytes = (px->n.pxlen + 7) / 8;
       a = px->n.prefix;
@@ -272,7 +339,8 @@ bgp_encode_prefixes(struct bgp_proto *p, byte *w, struct bgp_bucket *buck, unsig
       w += bytes;
       remains -= bytes + 1;
       rem_node(&px->bucket_node);
-      fib_delete(&p->prefix_fib, px);
+      bgp_free_prefix(p, px);
+      // fib_delete(&p->prefix_fib, px);
     }
   return w - start;
 }
@@ -285,7 +353,8 @@ bgp_flush_prefixes(struct bgp_proto *p, struct bgp_bucket *buck)
       struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
       log(L_ERR "%s: - route %I/%d skipped", p->p.name, px->n.prefix, px->n.pxlen);
       rem_node(&px->bucket_node);
-      fib_delete(&p->prefix_fib, px);
+      bgp_free_prefix(p, px);
+      // fib_delete(&p->prefix_fib, px);
     }
 }
 
@@ -356,6 +425,16 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
     }
   else
     return NULL;
+}
+
+static byte *
+bgp_create_end_mark(struct bgp_conn *conn, byte *buf)
+{
+  struct bgp_proto *p = conn->bgp;
+  BGP_TRACE(D_PACKETS, "Sending End-of-RIB");
+
+  put_u32(buf, 0);
+  return buf+4;
 }
 
 #else		/* IPv6 version */
@@ -530,6 +609,26 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
     return NULL;
 }
 
+static byte *
+bgp_create_end_mark(struct bgp_conn *conn, byte *buf)
+{
+  struct bgp_proto *p = conn->bgp;
+  BGP_TRACE(D_PACKETS, "Sending End-of-RIB");
+
+  put_u16(buf+0, 0);
+  put_u16(buf+2, 6);	/* length 4-9 */
+  buf += 4;
+
+  /* Empty MP_UNREACH_NLRI atribute */
+  *buf++ = BAF_OPTIONAL;
+  *buf++ = BA_MP_UNREACH_NLRI;
+  *buf++ = 3;		/* Length 7-9 */
+  *buf++ = 0;		/* AFI */
+  *buf++ = BGP_AF_IPV6;
+  *buf++ = 1;		/* SAFI */
+  return buf;
+}
+
 #endif
 
 static byte *
@@ -616,10 +715,16 @@ bgp_fire_tx(struct bgp_conn *conn)
     {
       end = bgp_create_update(conn, pkt);
       type = PKT_UPDATE;
+
       if (!end)
 	{
 	  conn->packets_to_send = 0;
-	  return 0;
+
+	  if (!p->send_end_mark)
+	    return 0;
+
+	  p->send_end_mark = 0;
+	  end = bgp_create_end_mark(conn, pkt);
 	}
     }
   else
@@ -671,7 +776,7 @@ void
 bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 {
   struct bgp_proto *p = conn->bgp;
-  int   cl;
+  int i,cl;
   u16  afi;
   u8  safi;
 
@@ -690,11 +795,27 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  conn->peer_refresh_support = 1;
 	  break;
 
-	case 65: /* AS4 capability, RFC 4893 */ 
+	case 64: /* Graceful restart capability, RFC 4724 */
+	  if (cl % 4 != 2)
+	    goto err;
+	  conn->peer_gr_aware = 1;
+	  conn->peer_gr_able = 0;
+	  conn->peer_gr_time = get_u16(opt + 2) & 0x0fff;
+	  conn->peer_gr_flags = opt[2] & 0xf0;
+	  conn->peer_gr_aflags = 0;
+	  for (i = 2; i < cl; i += 4)
+	    if (opt[2+i+0] == 0 && opt[2+i+1] == BGP_AF && opt[2+i+2] == 1) /* Match AFI/SAFI */
+	      {
+		conn->peer_gr_able = 1;
+		conn->peer_gr_aflags = opt[2+i+3];
+	      }
+	  break;
+
+	case 65: /* AS4 capability, RFC 4893 */
 	  if (cl != 4)
 	    goto err;
 	  conn->peer_as4_support = 1;
-	  if (conn->want_as4_support)
+	  if (conn->bgp->cf->enable_as4)
 	    conn->advertised_as = get_u32(opt + 2);
 	  break;
 
@@ -702,7 +823,7 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  if (cl != 3)          /* date length must be 3 */
 	    goto err;
 
-	  if ( ! p->cf->enable_bgpsec ) {
+	  if ( ! conn->bgp->cf->enable_bgpsec ) {
 	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC NOT enabled locally");
 	    goto err;
 	  }
@@ -718,23 +839,23 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 
 	  if (opt[2] & 0x08) { 
 	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
-	    p->bgpsec_send = 1;
+	    conn->bgp->bgpsec_send = 1;
 	  }
 
 	  if (0 == (opt[2] & 0x08)) { 
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages, sigh : %d", opt[2]);
-	    p->bgpsec_receive = 1;
+	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
+	    conn->bgp->bgpsec_receive = 1;
 	  }
 
 	  afi = get_u16(opt + 3);
 
 	  if (BGP_AF_IPV4 == afi) {
 	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
-	    p->bgpsec_ipv4 = 1;
+	    conn->bgp->bgpsec_ipv4 = 1;
 	  }
 	  else if (BGP_AF_IPV6 == afi) {
 	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
-	    p->bgpsec_ipv6 = 1;
+	    conn->bgp->bgpsec_ipv6 = 1;
 	  }
 	  else {
 	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: unknown AFI: %d", afi);
@@ -742,6 +863,18 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  }
 
 	  break;
+
+	case 69: /* ADD-PATH capability, draft */
+	  if (cl % 4)
+	    goto err;
+	  for (i = 0; i < cl; i += 4)
+	    if (opt[2+i+0] == 0 && opt[2+i+1] == BGP_AF && opt[2+i+2] == 1) /* Match AFI/SAFI */
+	      conn->peer_add_path = opt[2+i+3];
+	  if (conn->peer_add_path > ADD_PATH_FULL)
+	    goto err;
+
+	  break;
+
 	  /* We can safely ignore all other capabilities */
 	}
       len -= 2 + cl;
@@ -749,7 +882,7 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
     }
   return;
 
-    err:
+ err:
   bgp_error(conn, 2, 0, NULL, 0);
   return;
 }
@@ -811,7 +944,7 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, int len)
 
   /* Check state */
   if (conn->state != BS_OPENSENT)
-    { bgp_error(conn, 5, 0, NULL, 0); return; }
+    { bgp_error(conn, 5, fsm_err_subcode[conn->state], NULL, 0); return; }
 
   /* Check message contents */
   if (len < 29 || len != 29 + pkt[28])
@@ -852,12 +985,17 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, int len)
   other = (conn == &p->outgoing_conn) ? &p->incoming_conn : &p->outgoing_conn;
   switch (other->state)
     {
-    case BS_IDLE:
     case BS_CONNECT:
     case BS_ACTIVE:
+      /* Stop outgoing connection attempts */
+      bgp_conn_enter_idle_state(other);
+      break;
+
+    case BS_IDLE:
     case BS_OPENSENT:
     case BS_CLOSE:
       break;
+
     case BS_OPENCONFIRM:
       if ((p->local_id < id) == (conn == &p->incoming_conn))
 	{
@@ -880,7 +1018,13 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, int len)
   conn->hold_time = MIN(hold, p->cf->hold_time);
   conn->keepalive_time = p->cf->keepalive_time ? : conn->hold_time / 3;
   p->remote_id = id;
-  p->as4_session = conn->want_as4_support && conn->peer_as4_support;
+  p->as4_session = p->cf->enable_as4 && conn->peer_as4_support;
+  p->add_path_rx = (p->cf->add_path & ADD_PATH_RX) && (conn->peer_add_path & ADD_PATH_TX);
+  p->add_path_tx = (p->cf->add_path & ADD_PATH_TX) && (conn->peer_add_path & ADD_PATH_RX);
+  p->gr_ready = p->cf->gr_mode && conn->peer_gr_able;
+
+  if (p->add_path_tx)
+    p->p.accept_ra_types = RA_ANY;
 
   DBG("BGP: Hold timer set to %d, keepalive to %d, AS to %d, ID to %x, AS4 session to %d\n", conn->hold_time, conn->keepalive_time, p->remote_as, p->remote_id, p->as4_session);
 
@@ -889,8 +1033,31 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, int len)
   bgp_conn_enter_openconfirm_state(conn);
 }
 
-/*
-#define DECODE_PREFIX(pp, ll) do {		\
+
+static inline void
+bgp_rx_end_mark(struct bgp_proto *p)
+{
+  BGP_TRACE(D_PACKETS, "Got End-of-RIB");
+
+  if (p->p.gr_recovery)
+    proto_graceful_restart_unlock(&p->p);
+
+  if (p->gr_active)
+    bgp_graceful_restart_done(p);
+}
+
+
+/* DECODE_PREFIX definition moved to bgp.h, so that it can also be
+ * used by attrs.c : bgpsec_decode_attr() */
+/* 
+#define DECODE_PREFIX(pp, ll) do {	\
+  if (p->add_path_rx)				\
+  {						\
+    if (ll < 5) { err=1; goto done; }		\
+    path_id = get_u32(pp);			\
+    pp += 4;					\
+    ll -= 4;					\
+  }						\
   int b = *pp++;				\
   int q;					\
   ll--;						\
@@ -906,6 +1073,53 @@ bgp_rx_open(struct bgp_conn *conn, byte *pkt, int len)
 } while (0)
 */
 
+
+static inline void
+bgp_rte_update(struct bgp_proto *p, ip_addr prefix, int pxlen,
+	       u32 path_id, u32 *last_id, struct rte_src **src,
+	       rta *a0, rta **a)
+{
+  if (path_id != *last_id)
+    {
+      *src = rt_get_source(&p->p, path_id);
+      *last_id = path_id;
+
+      if (*a)
+	{
+	  rta_free(*a);
+	  *a = NULL;
+	}
+    }
+
+  /* Prepare cached route attributes */
+  if (!*a)
+    {
+      a0->src = *src;
+      *a = rta_lookup(a0);
+    }
+
+  net *n = net_get(p->p.table, prefix, pxlen);
+  rte *e = rte_get_temp(rta_clone(*a));
+  e->net = n;
+  e->pflags = 0;
+  e->u.bgp.suppressed = 0;
+  rte_update2(p->p.main_ahook, n, e, *src);
+}
+
+static inline void
+bgp_rte_withdraw(struct bgp_proto *p, ip_addr prefix, int pxlen,
+		 u32 path_id, u32 *last_id, struct rte_src **src)
+{
+  if (path_id != *last_id)
+    {
+      *src = rt_find_source(&p->p, path_id);
+      *last_id = path_id;
+    }
+
+  net *n = net_find(p->p.table, prefix, pxlen);
+  rte_update2( p->p.main_ahook, n, NULL, *src);
+}
+
 static inline int
 bgp_set_next_hop(struct bgp_proto *p, rta *a)
 {
@@ -913,7 +1127,7 @@ bgp_set_next_hop(struct bgp_proto *p, rta *a)
   ip_addr *nexthop = (ip_addr *) nh->u.ptr->data;
 
 #ifdef IPV6
-  int second = (nh->u.ptr->length == NEXT_HOP_LENGTH);
+  int second = (nh->u.ptr->length == NEXT_HOP_LENGTH) && ipa_nonzero(nexthop[1]);
 
   /* First address should not be link-local, but may be zero in direct mode */
   if (ipa_has_link_scope(*nexthop))
@@ -965,18 +1179,27 @@ bgp_do_rx_update(struct bgp_conn *conn,
 		 byte *attrs, int attr_len)
 {
   struct bgp_proto *p = conn->bgp;
-  net *n;
+  struct rte_src *src = p->p.main_source;
   rta *a0, *a = NULL;
   ip_addr prefix;
   int pxlen, err = 0;
+  u32 path_id = 0;
+  u32 last_id = 0;
+
+  /* Check for End-of-RIB marker */
+  if (!withdrawn_len && !attr_len && !nlri_len)
+    {
+      bgp_rx_end_mark(p);
+      return;
+    }
 
   /* Withdraw routes */
   while (withdrawn_len)
     {
       DECODE_PREFIX(withdrawn, withdrawn_len);
       DBG("Withdraw %I/%d\n", prefix, pxlen);
-      if (n = net_find(p->p.table, prefix, pxlen))
-	rte_update(p->p.table, n, &p->p, &p->p, NULL);
+
+      bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
     }
 
   if (!attr_len && !nlri_len)		/* shortcut */
@@ -988,28 +1211,21 @@ bgp_do_rx_update(struct bgp_conn *conn,
   if (conn->state != BS_ESTABLISHED)	/* fatal error during decoding */
     return;
 
-  if (a0 && nlri_len && bgp_set_next_hop(p, a0))
-    a = rta_lookup(a0);
+  if (a0 && nlri_len && !bgp_set_next_hop(p, a0))
+    a0 = NULL;
+
+  last_id = 0;
+  src = p->p.main_source;
 
   while (nlri_len)
     {
       DECODE_PREFIX(nlri, nlri_len);
       DBG("Add %I/%d\n", prefix, pxlen);
 
-      if (a)
-	{
-	  rte *e = rte_get_temp(rta_clone(a));
-	  e->net = net_get(p->p.table, prefix, pxlen);
-	  e->pflags = 0;
-	  e->u.bgp.suppressed = 0;
-	  rte_update(p->p.table, e->net, &p->p, &p->p, e);
-	}
-      else
-	{
-	  /* Forced withdraw as a result of soft error */
-	  if (n = net_find(p->p.table, prefix, pxlen))
-	    rte_update(p->p.table, n, &p->p, &p->p, NULL);
-	}
+      if (a0)
+	bgp_rte_update(p, prefix, pxlen, path_id, &last_id, &src, a0, &a);
+      else /* Forced withdraw as a result of soft error */
+	bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
     }
 
  done:
@@ -1065,13 +1281,15 @@ bgp_do_rx_update(struct bgp_conn *conn,
 		 byte *attrs, int attr_len)
 {
   struct bgp_proto *p = conn->bgp;
+  struct rte_src *src = p->p.main_source;
   byte *start, *x;
   int len, len0;
   unsigned af, sub;
-  net *n;
   rta *a0, *a = NULL;
   ip_addr prefix;
   int pxlen, err = 0;
+  u32 path_id = 0;
+  u32 last_id = 0;
 
   p->mp_reach_len = 0;
   p->mp_unreach_len = 0;
@@ -1080,14 +1298,21 @@ bgp_do_rx_update(struct bgp_conn *conn,
   if (conn->state != BS_ESTABLISHED)	/* fatal error during decoding */
     return;
 
+  /* Check for End-of-RIB marker */
+  if ((attr_len < 8) && !withdrawn_len && !nlri_len && !p->mp_reach_len &&
+      (p->mp_unreach_len == 3) && (get_u16(p->mp_unreach_start) == BGP_AF_IPV6))
+    {
+      bgp_rx_end_mark(p);
+      return;
+    }
+
   DO_NLRI(mp_unreach)
     {
       while (len)
 	{
 	  DECODE_PREFIX(x, len);
 	  DBG("Withdraw %I/%d\n", prefix, pxlen);
-	  if (n = net_find(p->p.table, prefix, pxlen))
-	    rte_update(p->p.table, n, &p->p, &p->p, NULL);
+	  bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
 	}
     }
 
@@ -1104,39 +1329,21 @@ bgp_do_rx_update(struct bgp_conn *conn,
       len -= *x + 2;
       x += *x + 2;
 
-      if (a0 && bgp_set_next_hop(p, a0))
-	a = rta_lookup(a0);
+      if (a0 && ! bgp_set_next_hop(p, a0))
+	a0 = NULL;
+
+      last_id = 0;
+      src = p->p.main_source;
 
       while (len)
 	{
 	  DECODE_PREFIX(x, len);
 	  DBG("Add %I/%d\n", prefix, pxlen);
 
-	  /* XXX shouldn't be here anymore?
-	  if (p->cf->enable_bgpsec && conn->peer_bgpsec_support)
-	    {
-	      if ( !bgpsec_authenticate(conn, a0, prefix, pxlen, bgp_linpool) )
-		{
-		  / XXX correct error values /
-		  err = 1;
-		  goto done;
-		}
-		} */
-
-	  if (a)
-	    {
-	      rte *e = rte_get_temp(rta_clone(a));
-	      e->net = net_get(p->p.table, prefix, pxlen);
-	      e->pflags = 0;
-	      e->u.bgp.suppressed = 0;
-	      rte_update(p->p.table, e->net, &p->p, &p->p, e);
-	    }
-	  else
-	    {
-	      /* Forced withdraw as a result of soft error */
-	      if (n = net_find(p->p.table, prefix, pxlen))
-		rte_update(p->p.table, n, &p->p, &p->p, NULL);
-	    }
+	  if (a0)
+	    bgp_rte_update(p, prefix, pxlen, path_id, &last_id, &src, a0, &a);
+	  else /* Forced withdraw as a result of soft error */
+	    bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
 	}
     }
 
@@ -1166,7 +1373,7 @@ bgp_rx_update(struct bgp_conn *conn, byte *pkt, int len)
     bgp_conn_enter_established_state(conn);
 
   if (conn->state != BS_ESTABLISHED)
-    { bgp_error(conn, 5, 0, NULL, 0); return; }
+    { bgp_error(conn, 5, fsm_err_subcode[conn->state], NULL, 0); return; }
   bgp_start_timer(conn->hold_timer, conn->hold_time);
 
   /* Find parts of the packet and check sizes */
@@ -1229,7 +1436,10 @@ static struct {
   { 3, 11, "Malformed AS_PATH" },
   { 3, 12, "Bad BGPSEC Signature"},
   { 4, 0, "Hold timer expired" },
-  { 5, 0, "Finite state machine error" },
+  { 5, 0, "Finite state machine error" }, /* Subcodes are according to [RFC6608] */
+  { 5, 1, "Unexpected message in OpenSent state" },
+  { 5, 2, "Unexpected message in OpenConfirm state" },
+  { 5, 3, "Unexpected message in Established state" },
   { 6, 0, "Cease" }, /* Subcodes are according to [RFC4486] */
   { 6, 1, "Maximum number of prefixes reached" },
   { 6, 2, "Administrative shutdown" },
@@ -1360,7 +1570,7 @@ bgp_rx_keepalive(struct bgp_conn *conn)
     case BS_ESTABLISHED:
       break;
     default:
-      bgp_error(conn, 5, 0, NULL, 0);
+      bgp_error(conn, 5, fsm_err_subcode[conn->state], NULL, 0);
     }
 }
 
@@ -1372,7 +1582,7 @@ bgp_rx_route_refresh(struct bgp_conn *conn, byte *pkt, int len)
   BGP_TRACE(D_PACKETS, "Got ROUTE-REFRESH");
 
   if (conn->state != BS_ESTABLISHED)
-    { bgp_error(conn, 5, 0, NULL, 0); return; }
+    { bgp_error(conn, 5, fsm_err_subcode[conn->state], NULL, 0); return; }
 
   if (!p->cf->enable_refresh)
     { bgp_error(conn, 1, 3, pkt+18, 1); return; }
