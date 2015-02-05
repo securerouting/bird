@@ -82,8 +82,8 @@ Configuring and Compiling
 If you are using the patch, download BIRD bird-1.4.5.tar.gz from
 http://bird.network.cz/
 
- # tar xvzpf bird-1.3.9.tar.gz 
- # cd bird-1.3.9/
+ # tar xvzpf bird-1.4.5.tar.gz 
+ # cd bird-1.4.5/
  # patch -p1 < PATH-TO/BIRD-bgpsec-patch-v1.4.5.diff 
 
 
