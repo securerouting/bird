@@ -93,7 +93,8 @@ int bgpsec_sign_data_with_key(const struct bgp_config *conf,
     switch (signature_algorithm) {
     case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
 
-	if (EVP_Digest(octets, octets_len, md_value, &md_len, EVP_sha256(), NULL) &&
+      if (EVP_Digest(octets, octets_len, md_value, (unsigned int *)&md_len, 
+		     EVP_sha256(), NULL) &&
 	    (ctx = EVP_PKEY_CTX_new(key.pkey, NULL)) != NULL &&
 	    EVP_PKEY_sign_init(ctx) > 0 &&
 	    EVP_PKEY_CTX_set_signature_md(ctx, EVP_sha256()) > 0 &&
@@ -163,7 +164,8 @@ int bgpsec_verify_signature_with_key(const struct bgp_config *conf,
     switch (signature_algorithm) {
     case BGPSEC_ALGORITHM_SHA256_ECDSA_P_256:
 
-	if (EVP_Digest(octets, octets_len, md_value, &md_len, EVP_sha256(), NULL) &&
+      if (EVP_Digest(octets, octets_len, md_value, (unsigned int *)&md_len, 
+		     EVP_sha256(), NULL) &&
 	    (ctx = EVP_PKEY_CTX_new(key.pkey, NULL)) != NULL &&
 	    EVP_PKEY_verify_init(ctx) > 0 &&
 	    EVP_PKEY_CTX_set_signature_md(ctx, EVP_sha256()) > 0 &&
