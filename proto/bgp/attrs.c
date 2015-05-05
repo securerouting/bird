@@ -31,7 +31,9 @@
 
 #include "bgp.h"
 
+#ifdef CONFIG_BGPSEC
 #include "bgpsec/validate.h"
+#endif
 
 /*
  *   UPDATE message error handling
@@ -273,6 +275,9 @@ bgp_format_cluster_list(eattr *a, byte *buf, int buflen)
 }
 
 
+/* BGPsec Decode Functions */
+#ifdef CONFIG_BGPSEC
+
 /* Creates an as_path from the bgpsec attribute secure_path
    information and adds it to the rta struct. */
 /* The created as_path is used for local route determination and is
@@ -357,6 +362,7 @@ hashbuff_to_string(u8 *hb, int len)
   return ret;
 }
 
+
 /* Parse bgpsec attr and make sure that it is encoded at a minimum
    level of properly.  I.e., check that the size and lengths of its
    parts are in an acceptable range. */
@@ -377,9 +383,9 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
   /* 'p', 'err', 'path_id' and goto 'done:' are used by the
    * DECODE_PREFIX macro, defined in bgp.h */
   struct bgp_proto *p = bgp;
-  int     err = 0;
-  u32 path_id = 0;
-
+  int             err = 0;
+  u32         path_id = 0;
+  
   ip_addr  prefix = 0;
   int      pxlen  = 0;
 
@@ -620,6 +626,8 @@ bgpsec_decode_attr(struct bgp_proto *bgp,
   
 } /* static int bgpsec_decode_attr */
 
+#endif
+/* end BGPsec Decode Functions */
 
 static int
 bgp_check_reach_nlri(struct bgp_proto *p UNUSED, byte *a UNUSED, int len UNUSED)
@@ -697,9 +705,12 @@ static struct attr_desc bgp_attr_table[] = {
   { .name = NULL },                                                             /* 28 BA_ENTROPY_LABELS */
   { .name = NULL },                                                             /* 29 BA_LS_ATTRIBUTE */
   /* supported */
-  { "bgpsec_signature", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,                   /* 30 BA_BGPSEC_SIGNATURE */
-    NULL, NULL }, /* Treated as a special case and checked by bgpsec_decode_attr,
+#ifdef CONFIG_BPGSEC
+  /* Treated as a special case and checked by bgpsec_decode_attr,
 		   * bgpsec_authenticate, and bgpsec_sign */
+  { "bgpsec_signature", -1, BAF_OPTIONAL, EAF_TYPE_OPAQUE, 1,                   /* 30 BA_BGPSEC_SIGNATURE */
+    NULL, NULL },
+#endif  
 };
 
 /* BA_AS4_PATH is type EAF_TYPE_OPAQUE and not type EAF_TYPE_AS_PATH.
@@ -838,6 +849,8 @@ bgp_get_attr_len(eattr *a)
 
 #define ADVANCE(w, r, l) do { r -= l; w += l; } while (0)
 
+/* BGPSEC Sign Function */
+#ifdef CONFIG_BGPSEC
 
 /* For the originating AS, add a bgpsec signature attribute to the update */
 /* Otherwise, add an additional signature to the bgpsec signature attribute */
@@ -889,7 +902,6 @@ bgpsec_sign(struct  bgp_conn  *conn,
       pathptr += 2;
     }
 
-  u8  pcount           = 0;
   u32 ras              = conn->bgp->remote_as;
   u32 las              = conn->bgp->local_as;
   
@@ -929,8 +941,10 @@ bgpsec_sign(struct  bgp_conn  *conn,
 	      "bgpsec_sign: bgpsec attr shouldn't exist at first path AS");
 	  return -1;
 	}
-
-      pcount  = plen;
+      
+      /* Where pcount would exist in as_path, commend because not
+       * being used currently */
+      /* u8 pcount  = plen; */
 
       struct bgp_prefix *px = 
 	SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
@@ -1205,6 +1219,8 @@ bgpsec_sign(struct  bgp_conn  *conn,
   return (w - start);
 } /* int bgpsec_sign */
 
+#endif
+/* End BGPsec Sign Function */
 
 /**
  * bgp_encode_attrs - encode BGP attributes
@@ -1238,6 +1254,7 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
 	continue;
 #endif
 
+#ifdef CONFIG_BGPSEC
       /* Do not send internal extended attribute */
       if ( code == BA_INTERNAL_BGPSEC_VALID )
 	{
@@ -1245,12 +1262,13 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
 	}
 
       /* Do not send AS_PATH for BGPSEC connections, it is only used internally. */
-      /* BGPSEC signing is handled after this loop, XXX should BGPSEC be handled inline? */
+      /* BGPSEC signing is handled after this loop */
       if ( (p->cf->enable_bgpsec) &&
 	   ((code == BA_AS_PATH) || (code == BA_BGPSEC_SIGNATURE)) )
 	{
 	  continue;
 	}
+#endif
 
       /* When AS4-aware BGP speaker is talking to non-AS4-aware BGP speaker,
        * we have to convert our 4B AS_PATH to 2B AS_PATH and send our AS_PATH 
@@ -1377,6 +1395,7 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
       ADVANCE(w, remains, len);
     }
 
+#ifdef CONFIG_BGPSEC  
   int bgpsec_len = bgpsec_sign(p->conn, attrs, w, remains, buck);
 
   if ( bgpsec_len < 0 )
@@ -1385,7 +1404,8 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains,
       goto err_no_buffer;
     }
   ADVANCE(w, remains, bgpsec_len);
-
+#endif
+  
   return w - start;
 
  err_no_buffer:
@@ -1604,9 +1624,12 @@ bgp_get_bucket(struct bgp_proto *p, net *n, ea_list *attrs, int originate)
   /* Hash */
   hash = ea_hash(new);
   for(b=p->bucket_hash[hash & (p->hash_size - 1)]; b; b=b->hash_next)
-    if ( (b->hash == hash && ea_same(b->eattrs, new)) &&
-         (!p->conn->peer_bgpsec_support) )
-      /* multiple prefixes not allowed in BGPSEC NLRI*/
+    if ( (b->hash == hash && ea_same(b->eattrs, new))
+#ifdef CONFIG_BGPSEC
+	 /* multiple prefixes not allowed in BGPSEC NLRI*/
+         && (!p->conn->peer_bgpsec_support)
+#endif	 
+	 )
       {
 	DBG("Found bucket.\n");
 	return b;
@@ -1989,7 +2012,8 @@ bgp_rte_better(rte *new, rte *old)
   if (n < o)
     return 0;
 
-  /* Somewhat arbitrary placement for bgpsec validity check */
+#ifdef CONFIG_BGPSEC  
+  /* Somewhat arbitrary ordering placement for bgpsec validity check */
   if (new_bgp->cf->enable_bgpsec || old_bgp->cf->enable_bgpsec)
     {
       x = ea_find(new->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
@@ -2001,7 +2025,7 @@ bgp_rte_better(rte *new, rte *old)
       if (n < o)
 	return 0;
     }
-  
+#endif  
 
   /* RFC 4271 9.1.2.2. a)  Use AS path lengths */
   if (new_bgp->cf->compare_path_lengths || old_bgp->cf->compare_path_lengths)
@@ -2459,14 +2483,17 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
 	    }
 	  else if (code == BA_AS_PATH)
 	    {
+#ifdef CONFIG_BGPSEC
 	      /* BGPSEC connections should not have a BA_AS_PATH attributes */
 	      /* XXX need a better error code here */
 	      if ( conn->bgp->cf->enable_bgpsec )
 		{ errcode = 99; goto err; }
+#endif	      
 	      /* Special case as it might also trim the attribute */
 	      if (validate_as_path(bgp, z, &l) < 0)
 		{ errcode = 11; goto err; }
 	    }
+#ifdef CONFIG_BGPSEC
 	  else if (code == BA_BGPSEC_SIGNATURE)
 	    {
 	      log(L_DEBUG "UPDATE: message has BA_BGPSEC_SIGNATURE");
@@ -2498,6 +2525,7 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
 	      if ( bgpsec_decode_attr(bgp, z, l, nlri, nlri_len, a, pool) < 0 )
 		{ errcode = 12; goto err; }
 	    }
+#endif
 	  type = desc->type;
 	}
       else				/* Unknown attribute */

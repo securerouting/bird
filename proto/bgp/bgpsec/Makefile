@@ -1,4 +1,4 @@
-source=bgpsec.c validate.c
+source=validate.c
 root-rel=../../../
 dir-name=proto/bgp/bgpsec
 

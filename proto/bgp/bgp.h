@@ -48,7 +48,9 @@ struct bgp_config {
   int capabilities;			/* Enable capability handshake [RFC3392] */
   int enable_refresh;			/* Enable local support for route refresh [RFC2918] */
   int enable_as4;			/* Enable local support for 4B AS numbers [RFC4893] */
-    /* XXX BGPSec XXX*/
+
+  /* BGPSec */
+  /* cannot be ifdef'd out due to config.Y compatibility */
   int enable_bgpsec;                    /* Whether neighbor should be a BGPSec peer */
   char *bgpsec_ski;                     /* local subject key id */
   char *bgpsec_key_repo_path;           /* Path to the public key repository */
@@ -58,7 +60,7 @@ struct bgp_config {
   int bgpsec_confed;                    /* is this peer a confederation member */
   int bgpsec_confed_validate;           /* should confederation peers be valiadated */
   int bgpsec_no_invalid_routes;         /* should invalid routes be dropped */
-
+  
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
   int rs_client;			/* Whether neighbor is RS client of me */
@@ -118,8 +120,12 @@ struct bgp_conn {
   byte *notify_data;
   u32 advertised_as;			/* Temporary value for AS number received */
   int start_state;			/* protocol start_state snapshot when connection established */
-  /* XXX BGPSec XXX*/
+
+#ifdef CONFIG_BGPSEC
+  /* BGPsec */
   u8 peer_bgpsec_support;               /* Peer supports BGPSec */
+#endif
+
   u8 peer_refresh_support;		/* Peer supports route refresh [RFC2918] */
   u8 peer_as4_support;			/* Peer supports 4B AS numbers [RFC4893] */
   u8 peer_add_path;			/* Peer supports ADD-PATH [draft] */
@@ -136,12 +142,15 @@ struct bgp_proto {
   struct bgp_config *cf;		/* Shortcut to BGP configuration */
   u32 local_as, remote_as;
   int start_state;			/* Substates that partitions BS_START */
-  /* XXX BGPSec XXX*/
+
+#ifdef CONFIG_BGPSEC
+  /* BGPsec */
   u8 bgpsec_send;                       /* Sender can send BGPSec messages */
   u8 bgpsec_receive;                    /* Sender can receive BGPSec messages */
   u8 bgpsec_ipv4;                       /* Sender uses BGPSec over iPv4 */
   u8 bgpsec_ipv6;                       /* Sender uses BGPSec over iPv6 */
-
+#endif
+  
   u8 is_internal;			/* Internal BGP connection (local_as == remote_as) */
   u8 as4_session;			/* Session uses 4B AS numbers in AS_PATH (both sides support it) */
   u8 add_path_rx;			/* Session expects receive of ADD-PATH extended NLRI */
@@ -208,17 +217,16 @@ struct bgp_bucket {
 #define BGP_RX_BUFFER_SIZE	4096
 #define BGP_TX_BUFFER_SIZE	BGP_MAX_PACKET_LENGTH
 
+#ifdef CONFIG_BGPSEC
 /* BGPSec constants */
-
-#define BGPSEC_VERSION	    0
-#define BGPSEC_CAPABILITY   72  /* xxx currently a best guess value */
-#define BGPSEC_SPATH_CONFED_FLAG  0x80
-
+#define BGPSEC_VERSION	            0
+#define BGPSEC_CAPABILITY           72  /* XXX currently a best guess value */
+#define BGPSEC_SPATH_CONFED_FLAG    0x80
 #define BGPSEC_SKI_LENGTH           20
 #define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
 #define BGPSEC_MAX_SIG_LENGTH       128 /* XXX this needs to be checked */
-#define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be fixed */
-
+#define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be checked */
+#endif
 
 extern struct linpool *bgp_linpool;
 

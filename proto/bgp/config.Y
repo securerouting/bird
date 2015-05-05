@@ -39,6 +39,7 @@ CF_KEYWORDS(BGP, LOCAL, NEIGHBOR, AS, HOLD, TIME, CONNECT, RETRY,
 	BGPSEC_SAVE_BINARY_KEYS, BGPSEC_NO_PCOUNT0, BGPSEC_CONFED, 
         BGPSEC_CONFED_VALIDATE, BGPSEC_NO_INVALID_ROUTES)
 
+
 CF_GRAMMAR
 
 CF_ADDTO(proto, bgp_proto '}' { bgp_check_config(BGP_CFG); } )
@@ -141,7 +142,6 @@ bgp_proto:
  | bgp_proto GRACEFUL RESTART TIME expr ';' { BGP_CFG->gr_time = $5; }
  | bgp_proto IGP TABLE rtable ';' { BGP_CFG->igp_table = $4; }
  | bgp_proto TTL SECURITY bool ';' { BGP_CFG->ttl_security = $4; }
- | bgp_proto BFD bool ';' { BGP_CFG->bfd = $3; cf_check_bfd($3); }
  | bgp_proto BGPSEC bool ';' { BGP_CFG->enable_bgpsec = $3; }
  | bgp_proto BGPSEC_CONFED bool ';' { BGP_CFG->bgpsec_confed = $3; }
  | bgp_proto BGPSEC_CONFED_VALIDATE bool ';' { BGP_CFG->bgpsec_confed_validate = $3; }
@@ -151,6 +151,7 @@ bgp_proto:
  | bgp_proto BGPSEC_PRIV_KEY_PATH TEXT ';' { BGP_CFG->bgpsec_priv_key_path = $3; }
  | bgp_proto BGPSEC_SAVE_BINARY_KEYS bool ';' { BGP_CFG->bgpsec_save_binary_keys = $3; }
  | bgp_proto BGPSEC_NO_PCOUNT0 bool ';' { BGP_CFG->bgpsec_no_pcount0 = $3; }
+ | bgp_proto BFD bool ';' { BGP_CFG->bfd = $3; cf_check_bfd($3); }
  ;
 
 CF_ADDTO(dynamic_attr, BGP_ORIGIN

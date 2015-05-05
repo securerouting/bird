@@ -202,6 +202,7 @@ bgp_put_cap_as4(struct bgp_proto *p, byte *buf)
   return buf + 4;
 }
 
+#ifdef CONFIG_BGPSEC
 /* Note: this adds 2 capabilities to bgp capabilitiies.
  * One indicates this router can send BGPSEC messages and
  * the other indicating it can recieve BGPSEC messages 
@@ -228,6 +229,7 @@ bgp_put_cap_bgpsec(struct bgp_conn *conn UNUSED, byte *buf)
   put_u16(buf, BGP_AF_IPV4);  /* address family, just ipv4 right now */
   return buf + 2;
 }
+#endif
 
 static byte *
 bgp_put_cap_add_path(struct bgp_proto *p, byte *buf)
@@ -291,12 +293,14 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
   if (p->cf->add_path)
     cap = bgp_put_cap_add_path(p, cap);
 
+#ifdef CONFIG_BGPSEC
   /* xxx */
   BGP_TRACE(D_PACKETS, "Add BGPSec capability? \'%d\', v%d, as4:%d",
             p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
   if (p->cf->enable_bgpsec)
     cap = bgp_put_cap_bgpsec(conn, cap);
-
+#endif
+  
   cap_len = cap - buf - 12;
   if (cap_len > 0)
     {
@@ -775,10 +779,12 @@ bgp_tx(sock *sk)
 void
 bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 {
-  struct bgp_proto *p = conn->bgp;
+  struct bgp_proto *p = conn->bgp; /* used in BGP_TRACE */
   int i,cl;
+#ifdef CONFIG_BGPSEC
   u16  afi;
-  u8  safi;
+  u8  safi;	  
+#endif
 
   while (len > 0)
     {
@@ -819,8 +825,9 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	    conn->advertised_as = get_u32(opt + 2);
 	  break;
 
+#ifdef CONFIG_BGPSEC
 	case BGPSEC_CAPABILITY: /* BPGSEC_CAPABILITY value currently arbitrary */
-	  if (cl != 3)          /* date length must be 3 */
+	  if (cl != 3)          /* data length must be 3 */
 	    goto err;
 
 	  if ( ! conn->bgp->cf->enable_bgpsec ) {
@@ -863,7 +870,8 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  }
 
 	  break;
-
+#endif
+	  
 	case 69: /* ADD-PATH capability, draft */
 	  if (cl % 4)
 	    goto err;

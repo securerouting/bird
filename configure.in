@@ -262,12 +262,19 @@ if test "$enable_debug" = yes ; then
 	fi
 fi
 
+AC_MSG_CHECKING([BGPsec enabled])
 if test "$enable_bgpsec" = yes ; then
-   	BGPSEC=bgpsec
+	AC_MSG_RESULT(yes)
 	protocols="$protocols bgp/bgpsec"
    	AC_CHECK_LIB(dl, dlopen)
    	AC_CHECK_LIB(crypto, PEM_read_X509)
-	AC_DEFINE(CONFIG_BGPSEC)
+ 	AC_CHECK_LIB(crypto, EC_KEY_set_asn1_flag)                                
+	if test $ac_cv_lib_crypto_EC_KEY_set_asn1_flag != yes ; then
+	   AC_MSG_ERROR([openssl: libcrypt does not support elliptical curves. EC support is required for BGPsec])
+	fi
+ 	AC_DEFINE(CONFIG_BGPSEC)
+else
+	AC_MSG_RESULT(no)
 fi
 
 CLIENT=
@@ -312,6 +319,7 @@ BIRD was configured with the following options:
 	Debugging:		$enable_debug
 	POSIX threads:		$enable_pthreads
 	Routing protocols:	$protocols
+	BGPsec enabled:		$enable_bgpsec
 	Client:			$enable_client
 EOF
 rm -f $objdir/.*-stamp
