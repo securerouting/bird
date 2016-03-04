@@ -324,6 +324,33 @@ static inline ip6_addr ip6_hton(ip6_addr a)
 static inline ip6_addr ip6_ntoh(ip6_addr a)
 { return _MI6(ntohl(_I0(a)), ntohl(_I1(a)), ntohl(_I2(a)), ntohl(_I3(a))); }
 
+#define MPLS_MAX_LABEL_STACK 8
+static inline int
+mpls_ntoh(const char *buf, int len, u32 *stack)
+{
+  for (int i=0; i<len; i++)
+  {
+    stack[i] = (buf[i*4 + 0] << 12) | (buf[i*4 + 1] << 4) | (buf[i*4 + 2] >> 4);
+    if (buf[i*4 + 2] & 0x1)
+      return i+1;
+  }
+  return -1;
+}
+
+static inline int
+mpls_hton(char *buf, int len, u32 *stack)
+{
+  for (int i=0; i<len; i++)
+  {
+    buf[i*4 + 0] = stack[i] >> 12;
+    buf[i*4 + 1] = stack[i] >> 4;
+    buf[i*4 + 2] = stack[i] << 4;
+    buf[i*4 + 3] = 0;
+  }
+
+  buf[len*4 - 2] |= 0x1;
+  return len*4;
+}
 
 /*
  *	Unaligned data access (in network order)
