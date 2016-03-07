@@ -174,7 +174,7 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          # key storage. The defaults are below:
 
          bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
-	 bgpsec_private_key_path "/usr/share/bird/bgpsec-private-keys" ;
+	 bgpsec_priv_key_path "/usr/share/bird/bgpsec-private-keys" ;
 
 	 # Do not allow the peer to set its pcount to 0.  Default is
          # true.  Set this value to false/0 if you want to allow your
@@ -209,9 +209,9 @@ instructions on how to use it.
 
 5. License(s)
 
-This BGPSEC patch created by Parsons, Inc.
+This BGPSEC code created by Parsons, Inc.
 
-(c) 2013-2013 Parsons, Inc.
+(c) 2013-2016 Parsons, Inc.
 All Rights Reserved
 
 Code within this patch is dual copyrighted under both the GPLv2+ and

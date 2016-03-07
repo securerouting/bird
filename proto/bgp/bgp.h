@@ -185,7 +185,7 @@ struct bgp_proto {
   u8 last_error_class; 			/* Error class of last error */
   u32 last_error_code;			/* Error code of last error. BGP protocol errors
 					   are encoded as (bgp_err_code << 16 | bgp_err_subcode) */
-#ifdef IPV6
+#if defined(IPV6) || defined CONFIG_BGPSEC
   byte *mp_reach_start, *mp_unreach_start; /* Multiprotocol BGP attribute notes */
   unsigned mp_reach_len, mp_unreach_len;
   ip_addr local_link;			/* Link-level version of source_addr */
@@ -220,7 +220,7 @@ struct bgp_bucket {
 #ifdef CONFIG_BGPSEC
 /* BGPSec constants */
 #define BGPSEC_VERSION	            0
-#define BGPSEC_CAPABILITY           72  /* XXX currently a best guess value */
+#define BGPSEC_CAPABILITY           212  /* currently random number from private use */
 #define BGPSEC_SPATH_CONFED_FLAG    0x80
 #define BGPSEC_SKI_LENGTH           20
 #define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
@@ -287,7 +287,7 @@ void bgp_init_bucket_table(struct bgp_proto *);
 void bgp_free_bucket(struct bgp_proto *p, struct bgp_bucket *buck);
 void bgp_init_prefix_table(struct bgp_proto *p, u32 order);
 void bgp_free_prefix(struct bgp_proto *p, struct bgp_prefix *bp);
-unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, struct bgp_bucket *buck);
+unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains);
 void bgp_get_route_info(struct rte *, byte *buf, struct ea_list *attrs);
 
 inline static void bgp_attach_attr_ip(struct ea_list **to, struct linpool *pool, unsigned attr, ip_addr a)
@@ -409,6 +409,18 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 
 #define BEA_ROUTE_LIMIT_EXCEEDED 1
 
+/* BGP Update Error codes */
+#define BGP_UPD_ERROR_MALFORMED_ATTR   1
+#define BGP_UPD_ERROR_UNRCGNZD_WK_ATTR 2 
+#define BGP_UPD_ERROR_MISSING_WK_ATTR  3
+#define BGP_UPD_ERROR_ATTR_FLAG        4
+#define BGP_UPD_ERROR_ATTR_LENGTH      5
+#define BGP_UPD_ERROR_INVALID_ORGIN    6
+#define BGP_UPD_ERROR_INVALID_HOP      8
+#define BGP_UPD_ERROR_OPT_ATTR         9
+#define BGP_UPD_ERROR_INVALID_NETWORK  10
+#define BGP_UPD_ERROR_MALFORMED_ASPATH 11
+
 /* Well-known communities */
 
 #define BGP_COMM_NO_EXPORT		0xffffff01	/* Don't export outside local AS / confed. */
@@ -432,7 +444,22 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 #define BGP_AF BGP_AF_IPV4
 #endif
 
-#endif
+#define DO_NLRI(name)					\
+  start = x = p->name##_start;				\
+  len = len0 = p->name##_len;				\
+  if (len)						\
+    {							\
+      if (len < 3) { err=9; goto done; }		\
+      af = get_u16(x);					\
+      sub = x[2];					\
+      x += 3;						\
+      len -= 3;						\
+      DBG("\tNLRI AF=%d sub=%d len=%d\n", af, sub, len);\
+    }							\
+  else							\
+    af = 0;						\
+if ((af == BGP_AF_IPV6) || (af == BGP_AF_IPV4))
+
 
 #define DECODE_PREFIX(pp, ll) do {              \
   if (p->add_path_rx)				\
@@ -456,3 +483,4 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
   pxlen = b;					\
 } while (0)
 
+#endif

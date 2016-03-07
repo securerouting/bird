@@ -40,6 +40,13 @@ static byte fsm_err_subcode[BS_MAX] = {
   [BS_ESTABLISHED] = 3
 };
 
+/* convert from AF_INET address family to BGP AF AF */
+u16 af_to_bgp_af(int af) {
+  if      (af == AF_INET)  { return BGP_AF_IPV4; }
+  else if (af == AF_INET6) { return BGP_AF_IPV6; }
+  else { return 0; }
+}
+
 /*
  * MRT Dump format is not semantically specified.
  * We will use these values in appropriate fields:
@@ -75,7 +82,7 @@ mrt_put_bgp4_hdr(byte *buf, struct bgp_conn *conn, int as4)
     }
 
   put_u16(buf+0, (p->neigh && p->neigh->iface) ? p->neigh->iface->index : 0);
-  put_u16(buf+2, BGP_AF);
+  put_u16(buf+2, af_to_bgp_af(conn->sk->af) );
   buf+=4;
   buf = ipa_put_addr(buf, conn->sk ? conn->sk->daddr : IPA_NONE);
   buf = ipa_put_addr(buf, conn->sk ? conn->sk->saddr : IPA_NONE);
@@ -214,19 +221,19 @@ static byte *
 bgp_put_cap_bgpsec(struct bgp_conn *conn UNUSED, byte *buf)
 {
   /* can send bgpsec capability */
-  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BPGSEC */
+  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BGPSEC */
   *buf++ = 3;		       /* BGPSEC Capability length */
-           /* bpgsec version and capable of sending */
+           /* bgpsec version and capable of sending */
   *buf++ = ( (BGPSEC_VERSION << 4) | 0x08 ); 
-  put_u16(buf, BGP_AF_IPV4);  /* address family, just ipv4 right now */
+  put_u16(buf, BGP_AF);  /* address family */
   buf = buf + 2;
 
   /* can receive bgpsec capability */
-  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BPGSEC */
+  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BGPSEC */
   *buf++ = 3;		       /* BGPSEC Capability length */
-           /* bpgsec version and capable of receiving bgpsec  */
+           /* bgpsec version and capable of receiving bgpsec  */
   *buf++ = ( (BGPSEC_VERSION << 4) | 0x00 ); 
-  put_u16(buf, BGP_AF_IPV4);  /* address family, just ipv4 right now */
+  put_u16(buf, BGP_AF);  /* address family */
   return buf + 2;
 }
 #endif
@@ -362,7 +369,10 @@ bgp_flush_prefixes(struct bgp_proto *p, struct bgp_bucket *buck)
     }
 }
 
-#ifndef IPV6		/* IPv4 version */
+
+
+#if !defined(IPV6) && !defined(CONFIG_BGPSEC)      /* IPv4 version */
+
 
 static byte *
 bgp_create_update(struct bgp_conn *conn, byte *buf)
@@ -398,7 +408,6 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	    }
 
 	  DBG("Processing bucket %p\n", buck);
-	  /* XXX need buck for bpgesec NLRI prefix info */
 	  a_size = bgp_encode_attrs(p, w+2, buck->eattrs, 2048, buck);
 
 	  if (a_size < 0)
@@ -441,7 +450,9 @@ bgp_create_end_mark(struct bgp_conn *conn, byte *buf)
   return buf+4;
 }
 
-#else		/* IPv6 version */
+
+#else		/* IPv6 or BGPSEC version */
+
 
 static inline int
 same_iface(struct bgp_proto *p, ip_addr *ip)
@@ -459,7 +470,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
   int remains = BGP_MAX_PACKET_LENGTH - BGP_HEADER_LENGTH - 4;
   byte *w, *w_stored, *tmp, *tstart;
   ip_addr *ipp, ip, ip_ll;
-  ea_list *ea;
+  ea_list *ea = NULL; 
   eattr *nh;
 
   put_u16(buf, 0);
@@ -470,11 +481,14 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
       DBG("Withdrawn routes:\n");
       tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_UNREACH_NLRI, remains-8);
       *tmp++ = 0;
+#ifdef IPV6
       *tmp++ = BGP_AF_IPV6;
+#else
+      *tmp++ = BGP_AF_IPV4;
+#endif
       *tmp++ = 1;
       ea->attrs[0].u.ptr->length = 3 + bgp_encode_prefixes(p, tmp, buck, remains-11);
-      /* XXX need buck for bpgesec NLRI prefix info */
-      size = bgp_encode_attrs(p, w, ea, remains, buck);
+      size = bgp_encode_attrs(p, w, ea, remains);
       ASSERT(size >= 0);
       w += size;
       remains -= size;
@@ -496,8 +510,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  rem_stored = remains;
 	  w_stored = w;
 
-	  /* XXX need buck for bpgsec NLRI prefix info */
-	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048, buck);
+	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048);
+
 	  if (size < 0)
 	    {
 	      log(L_ERR "%s: Attribute list too long, skipping corresponding routes", p->p.name);
@@ -566,9 +580,12 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	    }
 
 	  tstart = tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_REACH_NLRI, remains-8);
-	  *tmp++ = 0;
-	  *tmp++ = BGP_AF_IPV6;
-	  *tmp++ = 1;
+	  *tmp++ = 0; /* high order byte of AFI */
+
+#ifdef IPV6
+	  *tmp++ = BGP_AF_IPV6; /* AFI */
+	  *tmp++ = 1;           /* SAFI */
+
 
 	  if (ipa_has_link_scope(ip))
 	    ip = IPA_NONE;
@@ -589,14 +606,42 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	      memcpy(tmp, &ip, 16);
 	      tmp += 16;
 	    }
-
-	  *tmp++ = 0;			/* No SNPA information */
+#else
+	  *tmp++ = BGP_AF_IPV4; /* AFI */
+	  *tmp++ = 1;           /* SAFI */
+	  *tmp++ = 4;           /* next hop length */
+	  ipa_hton(ip); /* next hop */
+	  memcpy(tmp, &ip, 4);
+	  tmp += 4;
+#endif
+	  
+	  *tmp++ = 0;	       /* reserved byte (No SNPA information) */
+	  byte *nlri = tmp;
 	  tmp += bgp_encode_prefixes(p, tmp, buck, remains - (8+3+32+1));
 	  ea->attrs[0].u.ptr->length = tmp - tstart;
-	  /* XXX need buck for bpgesec NLRI prefix info */
-	  size = bgp_encode_attrs(p, w, ea, remains, buck);
+	  /* XXX need buck for bgpesec NLRI prefix info */
+	  size = bgp_encode_attrs(p, w, ea, remains);
+
 	  ASSERT(size >= 0);
 	  w += size;
+	  remains -= size;
+
+#ifdef CONFIG_BGPSEC
+	  if (p->conn->peer_bgpsec_support)
+	    {
+	      int bgpsec_len =
+		encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, nlri);
+
+	      if ( bgpsec_len < 0 )
+		{
+		  log(L_ERR "encode_bgpsec_attrs: bgpsec signing failed");
+		  return NULL;
+		}
+	      w += bgpsec_len;
+	      remains -= bgpsec_len;
+	    }
+#endif
+
 	  break;
 	}
     }
@@ -826,46 +871,46 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  break;
 
 #ifdef CONFIG_BGPSEC
-	case BGPSEC_CAPABILITY: /* BPGSEC_CAPABILITY value currently arbitrary */
+	case BGPSEC_CAPABILITY: /* BGPSEC_CAPABILITY value currently arbitrary */
 	  if (cl != 3)          /* data length must be 3 */
 	    goto err;
 
 	  if ( ! conn->bgp->cf->enable_bgpsec ) {
-	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC NOT enabled locally");
+	    BGP_TRACE(D_PACKETS, "Error: bgp_parse_capabilities: BGPSEC NOT enabled locally");
 	    goto err;
 	  }
 
 	  if ( BGPSEC_VERSION == (opt[2] & 0xF0) ) {
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
+	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
 	    conn->peer_bgpsec_support = 1;
 	  }
 	  else {
-	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: BGPSEC_VERSION does not match, loc : %d, rem : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
+	    BGP_TRACE(D_PACKETS, "Error: bgp_parse_capabilities: BGPSEC_VERSION does not match, loc : %d, rem : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
 	    goto err;
 	  }
 
 	  if (opt[2] & 0x08) { 
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
+	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
 	    conn->bgp->bgpsec_send = 1;
 	  }
 
 	  if (0 == (opt[2] & 0x08)) { 
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
+	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
 	    conn->bgp->bgpsec_receive = 1;
 	  }
 
 	  afi = get_u16(opt + 3);
 
 	  if (BGP_AF_IPV4 == afi) {
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
+	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
 	    conn->bgp->bgpsec_ipv4 = 1;
 	  }
 	  else if (BGP_AF_IPV6 == afi) {
-	    BGP_TRACE(D_PACKETS, "bpg_parse_capabilities: sender using IPV6 Address Family : %d", afi);
+	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender using IPV6 Address Family : %d", afi);
 	    conn->bgp->bgpsec_ipv6 = 1;
 	  }
 	  else {
-	    BGP_TRACE(D_PACKETS, "Error: bpg_parse_capabilities: unknown AFI: %d", afi);
+	    BGP_TRACE(D_PACKETS, "Error: bgp_parse_capabilities: unknown AFI: %d", afi);
 	    goto err;
 	  }
 
@@ -1056,7 +1101,7 @@ bgp_rx_end_mark(struct bgp_proto *p)
 
 
 /* DECODE_PREFIX definition moved to bgp.h, so that it can also be
- * used by attrs.c : bgpsec_decode_attr() */
+ * used by attrs.c : decode_bgpsec_attr() */
 /* 
 #define DECODE_PREFIX(pp, ll) do {	\
   if (p->add_path_rx)				\
@@ -1178,7 +1223,7 @@ bgp_set_next_hop(struct bgp_proto *p, rta *a)
 }
 
 
-#ifndef IPV6		/* IPv4 version */
+#if !defined(IPV6) && !defined(CONFIG_BGPSEC)		/* IPv4 version */
 
 static void
 bgp_do_rx_update(struct bgp_conn *conn,
@@ -1246,8 +1291,12 @@ bgp_do_rx_update(struct bgp_conn *conn,
   return;
 }
 
-#else			/* IPv6 version */
 
+#else			/* IPv6 || BGPSEC version */
+
+/* DO_NLRI definition moved to bgp.h, so that it can also be
+ * used by attrs.c : decode_bgpsec_attr() */
+/* 
 #define DO_NLRI(name)					\
   start = x = p->name##_start;				\
   len = len0 = p->name##_len;				\
@@ -1263,14 +1312,16 @@ bgp_do_rx_update(struct bgp_conn *conn,
   else							\
     af = 0;						\
   if (af == BGP_AF_IPV6)
+*/
 
 static void
 bgp_attach_next_hop(rta *a0, byte *x)
 {
   ip_addr *nh = (ip_addr *) bgp_attach_attr_wa(&a0->eattrs, bgp_linpool, BA_NEXT_HOP, NEXT_HOP_LENGTH);
-  memcpy(nh, x+1, 16);
+  memcpy(nh, x+1, (*x <= sizeof(ip_addr) ? *x : sizeof(ip_addr)) );
   ipa_ntoh(nh[0]);
 
+#ifdef IPv6
   /* We store received link local address in the other part of BA_NEXT_HOP eattr. */
   if (*x == 32)
     {
@@ -1279,6 +1330,7 @@ bgp_attach_next_hop(rta *a0, byte *x)
     }
   else
     nh[1] = IPA_NONE;
+#endif
 }
 
 
@@ -1326,9 +1378,9 @@ bgp_do_rx_update(struct bgp_conn *conn,
 
   DO_NLRI(mp_reach)
     {
-      /* Create fake NEXT_HOP attribute */
-      if (len < 1 || (*x != 16 && *x != 32) || len < *x + 2)
-	{ err = 9; goto done; }
+      /* Create fake NEXT_HOP attribute, check IP addr length */
+      if (len < 1 || (*x != 4 && *x != 16 && *x != 32) || len < *x + 2)
+	{ err = BGP_UPD_ERROR_OPT_ATTR; goto done; }
 
       if (a0)
 	bgp_attach_next_hop(a0, x);
@@ -1354,13 +1406,13 @@ bgp_do_rx_update(struct bgp_conn *conn,
 	    bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
 	}
     }
-
+    
  done:
   if (a)
     rta_free(a);
 
   if (err) /* Use subcode 9, not err */
-    bgp_error(conn, 3, 9, NULL, 0);
+    bgp_error(conn, 3, BGP_UPD_ERROR_OPT_ATTR, NULL, 0);
 
   return;
 }
