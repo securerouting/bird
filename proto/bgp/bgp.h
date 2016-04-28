@@ -224,7 +224,14 @@ struct bgp_bucket {
 #define BGPSEC_SPATH_CONFED_FLAG    0x80
 #define BGPSEC_SKI_LENGTH           20
 #define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
-#define BGPSEC_MAX_SIG_LENGTH       128 /* XXX this needs to be checked */
+#define BGPSEC_MAX_SIG_LENGTH       80  
+ /* sig hash length is somewhat arbitrary, 
+    = 20 + MaxASPathLength*(28 + max_sig_length).
+    As of 2016, max unique AS Path length found is 14.
+    This value will allowy for for a hash buffer that can handle an AS
+    path length ~47 long
+ */
+#define BGPSEC_SIG_HASH_LENGTH      5120
 #define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be checked */
 #endif
 
