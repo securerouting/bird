@@ -86,6 +86,10 @@
 
 #include "bgp.h"
 
+#ifdef CONFIG_BGPSEC
+/* sscanf parsing of SKI configuration value */
+#include <stdio.h>
+#endif
 
 struct linpool *bgp_linpool;		/* Global temporary pool */
 static sock *bgp_listen_sk;		/* Global listening socket */
@@ -1274,7 +1278,6 @@ bgp_check_config(struct bgp_config *c)
   if (c->c.class == SYM_TEMPLATE)
     return;
 
-
   /* EBGP direct by default, IBGP multihop by default */
   if (c->multihop < 0)
     c->multihop = internal ? 64 : 0;
@@ -1290,7 +1293,6 @@ bgp_check_config(struct bgp_config *c)
   /* Disable after error incompatible with restart limit action */
   if (c->c.in_limit && (c->c.in_limit->action == PLA_RESTART) && c->disable_after_error)
     c->c.in_limit->action = PLA_DISABLE;
-
 
   if (!c->local_as)
     cf_error("Local AS number must be set");
@@ -1337,6 +1339,41 @@ bgp_check_config(struct bgp_config *c)
 
   if (c->secondary && !c->c.table->sorted)
     cf_error("BGP with secondary option requires sorted table");
+
+#ifdef CONFIG_BGPSEC
+  /* create a binary SKI from config */
+  if ( c->enable_bgpsec ) {
+    if ( ( strnlen(c->bgpsec_ski, (2 * BGPSEC_SKI_LENGTH))
+	   != (BGPSEC_SKI_LENGTH * 2) )
+	 ||
+	 ( BGPSEC_SKI_LENGTH != 
+	   sscanf(c->bgpsec_ski,
+		  "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+		  (unsigned int *)c->bgpsec_bski,
+		  (unsigned int *)(c->bgpsec_bski+1),
+		  (unsigned int *)(c->bgpsec_bski+2),
+		  (unsigned int *)(c->bgpsec_bski+3),
+		  (unsigned int *)(c->bgpsec_bski+4),
+		  (unsigned int *)(c->bgpsec_bski+5),
+		  (unsigned int *)(c->bgpsec_bski+6),
+		  (unsigned int *)(c->bgpsec_bski+7),
+		  (unsigned int *)(c->bgpsec_bski+8),
+		  (unsigned int *)(c->bgpsec_bski+9),
+		  (unsigned int *)(c->bgpsec_bski+10),
+		  (unsigned int *)(c->bgpsec_bski+11),
+		  (unsigned int *)(c->bgpsec_bski+12),
+		  (unsigned int *)(c->bgpsec_bski+13),
+		  (unsigned int *)(c->bgpsec_bski+14),
+		  (unsigned int *)(c->bgpsec_bski+15),
+		  (unsigned int *)(c->bgpsec_bski+16),
+		  (unsigned int *)(c->bgpsec_bski+17),
+		  (unsigned int *)(c->bgpsec_bski+18),
+		  (unsigned int *)(c->bgpsec_bski+19)) )
+      )
+      cf_error("BGPSEC: unable to parse the configured SKI value");
+  }
+#endif
+
 }
 
 static int

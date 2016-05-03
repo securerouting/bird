@@ -25,6 +25,24 @@
 struct linpool;
 struct eattr;
 
+#ifdef CONFIG_BGPSEC
+/* BGPSec constants */
+#define BGPSEC_VERSION	            0
+/* currently capability is arbitrary number from private use */
+#define BGPSEC_CAPABILITY           212
+#define BGPSEC_SKI_LENGTH           20
+#define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
+#define BGPSEC_MAX_SIG_LENGTH       80  
+ /* sig hash length is somewhat arbitrary, 
+    = 20 + MaxASPathLength*(28 + max_sig_length).
+    As of 2016, max unique AS Path length found is 14.
+    This value will allowy for for a hash buffer that can handle an AS
+    path length ~47 long
+ */
+#define BGPSEC_SIG_HASH_LENGTH      5120
+#define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be checked */
+#endif
+
 struct bgp_config {
   struct proto_config c;
   u32 local_as, remote_as;
@@ -51,15 +69,15 @@ struct bgp_config {
 
   /* BGPSec */
   /* cannot be ifdef'd out due to config.Y compatibility */
-  int enable_bgpsec;                    /* Whether neighbor should be a BGPSec peer */
+  int   enable_bgpsec;                  /* Whether neighbor should be a BGPSec peer */
+  int   bgpsec_require;                 /* Whether neighbor should be a BGPSec peer */
   char *bgpsec_ski;                     /* local subject key id */
+  u8    bgpsec_bski[BGPSEC_SKI_LENGTH]; /* binary local SKI */
   char *bgpsec_key_repo_path;           /* Path to the public key repository */
   char *bgpsec_priv_key_path;           /* Path to the private key location */
-  int bgpsec_save_binary_keys;          /* Save a copy of the binary key */
-  int bgpsec_no_pcount0;                /* allow peer to have pcount 0, xxx current default allows */
-  int bgpsec_confed;                    /* is this peer a confederation member */
-  int bgpsec_confed_validate;           /* should confederation peers be valiadated */
-  int bgpsec_no_invalid_routes;         /* should invalid routes be dropped */
+  int   bgpsec_save_binary_keys;        /* Save a copy of the binary key */
+  int   bgpsec_no_pcount0;              /* allow peer to have pcount 0, xxx current default allows */
+  int   bgpsec_no_invalid_routes;       /* should invalid routes be dropped */
   
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
@@ -219,24 +237,6 @@ struct bgp_bucket {
 #define BGP_MAX_PACKET_LENGTH	4096
 #define BGP_RX_BUFFER_SIZE	4096
 #define BGP_TX_BUFFER_SIZE	BGP_MAX_PACKET_LENGTH
-
-#ifdef CONFIG_BGPSEC
-/* BGPSec constants */
-#define BGPSEC_VERSION	            0
-#define BGPSEC_CAPABILITY           212  /* currently random number from private use */
-#define BGPSEC_SPATH_CONFED_FLAG    0x80
-#define BGPSEC_SKI_LENGTH           20
-#define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
-#define BGPSEC_MAX_SIG_LENGTH       80  
- /* sig hash length is somewhat arbitrary, 
-    = 20 + MaxASPathLength*(28 + max_sig_length).
-    As of 2016, max unique AS Path length found is 14.
-    This value will allowy for for a hash buffer that can handle an AS
-    path length ~47 long
- */
-#define BGPSEC_SIG_HASH_LENGTH      5120
-#define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be checked */
-#endif
 
 extern struct linpool *bgp_linpool;
 

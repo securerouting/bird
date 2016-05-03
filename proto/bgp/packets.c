@@ -637,7 +637,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  byte *nlri = tmp;
 	  tmp += bgp_encode_prefixes(p, tmp, buck, remains - (8+3+32+1));
 	  ea->attrs[0].u.ptr->length = tmp - tstart;
-	  /* XXX need buck for bgpesec NLRI prefix info */
+
 	  size = bgp_encode_attrs(p, w, ea, remains);
 
 	  ASSERT(size >= 0);
@@ -645,19 +645,16 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  remains -= size;
 
 #ifdef CONFIG_BGPSEC
-	  if (p->conn->peer_bgpsec_support)
-	    {
-	      int bgpsec_len =
-		encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, nlri);
+	  if (p->conn->peer_bgpsec_support)  {
+	    int bgpsec_len = encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, nlri);
 
-	      if ( bgpsec_len < 0 )
-		{
-		  log(L_ERR "encode_bgpsec_attrs: bgpsec signing failed");
-		  return NULL;
-		}
-	      w += bgpsec_len;
-	      remains -= bgpsec_len;
+	    if ( bgpsec_len < 0 ) {
+	      log(L_ERR "encode_bgpsec_attrs: bgpsec signing failed");
+	      return NULL;
 	    }
+	    w += bgpsec_len;
+	    remains -= bgpsec_len;
+	  }
 #endif
 
 	  break;
