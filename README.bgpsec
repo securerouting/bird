@@ -1,5 +1,5 @@
 
-  1. BGPSEC patch
+  1. BGPSEC tar ball
   2. Installation Instructions:
   3. BIRD run time configuration
   4. Getting RPKI-RTR data (ROA's and Router Keys)
@@ -8,14 +8,13 @@
 
 1. BGPSEC patch
 
-This is a patch that adds BGPSEC capability to the BIRD BGP
-implementation.
+This code adds BGPSEC capability to the BIRD BGP implementation.
 
-This patch is not well tested and only tested on Linux machines. It is
-in an Alpha release and ***should not be considered for production
-systems***.  The basic BGPSEC protocol is supported with a several
-notable exceptions: IPv6 support, more than one signature block (for
-algorithm rollover), and bugs we have not seen yet.
+This has only been tested on Linux machines. It is in an Alpha release
+and ***should not be considered for production systems***.  The basic
+BGPSEC protocol is supported with a several notable exceptions: more
+than one signature block (for algorithm rollover), confederations, and
+bugs we have not seen yet.
 
 For information on BGPSEC see the Internet Engineering Task Force
 (IETF) Secure Inter-Domain Routing (SIDR) working group page and
@@ -24,9 +23,8 @@ specifically the draft describing the BGPSEC protocol:
 https://datatracker.ietf.org/wg/sidr/
 https://datatracker.ietf.org/doc/draft-ietf-sidr-bgpsec-protocol/
 
-This patch is for v1.4.5 of the BIRD software.  The patch will likely
-have some conflicts on different versions.  Information about BIRD
-including download instructions can be found at:
+This code is based on the v1.5.0 of the BIRD software.  Information
+about BIRD including download instructions can be found at:
 
 http://bird.network.cz/
 
@@ -57,7 +55,7 @@ On Fedora, you'll want flex, bison, and readline-devel packages.
 2.1.1 Use an OpenSSL version that supports ECDSA (Elliptic Curve
       Digital Signature Algorithm)
 
-The default OpenSSL distributed by many Linux vendors does not include
+The default OpenSSL distributed on some Linux vendors does not include
 elliptic curve support.  If yours distribution does not support
 elliptic curve in the OpenSSL libraries, you'll need to grab a fresh
 copy and compile it by hand. You may want to install it in a location
@@ -68,12 +66,6 @@ to do this:
 
 Then make and make install
 
-Note: Fedora (16,17) openssl RPMs and SRPM (17) with ecdsa support and
-an openssl source tar ball are available at:
-
-http://bgpsec.tislabs.com/openssl-ecdsa/
-
-
 
 2.2 Building Bird
 
@@ -82,23 +74,19 @@ Configuring and Compiling
 If you are using the patch, download BIRD bird-1.4.5.tar.gz from
 http://bird.network.cz/
 
- # tar xvzpf bird-1.5.0.tar.gz 
- # cd bird-1.5.0/
- # patch -p1 < PATH-TO/BIRD-bgpsec-patch-v1.5.0.diff 
-
+ # tar xvjpf bird-1.5.0.-bgpsec-0.7.tar.bz2
+ # cd bird-1.5.0-bgpsec-0.7/
 
 Build it.
 First rebuild configure (configure.in was changed by the patch):
 
  # autoconf 
 
-Then Use configure flags that look something like the following. In
-particular the paths for -I/usr/local/openssl-ecdsa/include and
--L/usr/local/openssl-ecdsa/lib are necessary to compile if you have a
-ecdsa supporting openssl installed in a non-standard location on your
-platform.  The OpenSSL arguments will change and may not be necessary
-depending on if you needed to install a ecdsa supporting openssl and
-where you installed it:
+Then Use configure flags that look something like the following.  if a
+version of OpenSSL that supported ecdsa had to be installed in a
+non-standard location on your platform, it will be necessary to add
+something like '-I/path/to//openssl-ecdsa/include' and
+'-L/path/to/openssl-ecdsa/lib' options to the configure command.
 
  # ./configure '--enable-bgpsec' 
 
@@ -128,9 +116,9 @@ other routers can be placed into the public key directory with their
 ASN/SKI identifying the file names in order for the validation
 routines to look them up.
 
-NOTE: in the future, to use the -rtr protocol instead to pull router
-keys.  The file names will also likely be part of a directory
-structure as well (.e.g ASN/4-digit/2-digit/Rest-of-SKI).
+NOTE: in the future, the rpki-rtr protocol could be used instead to
+pull router keys.  For example, BGPSEC-BIRD-Client is a tool that can
+pull router keys from a rpki cache using the rpki-rtr protocol.
 
 
 2.4 Coding For It
@@ -187,9 +175,9 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
 
 	 # bgpsec_prefer indicates whether validly signed bgpsec
          # routes are preferred to non-valid and/or non-signed
-         # routes. Default is true.
-	 # This decision is made after local pref and before as_path
-         # comparision in the best route algorithm.
+         # routes. Default is true.  This decision is made after the
+         # local pref and before the as_path comparison in the best
+         # route selection algorithm.
 	 bgpsec_prefer 1;
 
 	 # bgpsec_require indicates whether bgpsec signed routes are
