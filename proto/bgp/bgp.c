@@ -1343,34 +1343,54 @@ bgp_check_config(struct bgp_config *c)
 #ifdef CONFIG_BGPSEC
   /* create a binary SKI from config */
   if ( c->enable_bgpsec ) {
-    if ( ( strnlen(c->bgpsec_ski, (2 * BGPSEC_SKI_LENGTH))
-	   != (BGPSEC_SKI_LENGTH * 2) )
-	 ||
-	 ( BGPSEC_SKI_LENGTH != 
-	   sscanf(c->bgpsec_ski,
-		  "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
-		  (unsigned int *)c->bgpsec_bski,
-		  (unsigned int *)(c->bgpsec_bski+1),
-		  (unsigned int *)(c->bgpsec_bski+2),
-		  (unsigned int *)(c->bgpsec_bski+3),
-		  (unsigned int *)(c->bgpsec_bski+4),
-		  (unsigned int *)(c->bgpsec_bski+5),
-		  (unsigned int *)(c->bgpsec_bski+6),
-		  (unsigned int *)(c->bgpsec_bski+7),
-		  (unsigned int *)(c->bgpsec_bski+8),
-		  (unsigned int *)(c->bgpsec_bski+9),
-		  (unsigned int *)(c->bgpsec_bski+10),
-		  (unsigned int *)(c->bgpsec_bski+11),
-		  (unsigned int *)(c->bgpsec_bski+12),
-		  (unsigned int *)(c->bgpsec_bski+13),
-		  (unsigned int *)(c->bgpsec_bski+14),
-		  (unsigned int *)(c->bgpsec_bski+15),
-		  (unsigned int *)(c->bgpsec_bski+16),
-		  (unsigned int *)(c->bgpsec_bski+17),
-		  (unsigned int *)(c->bgpsec_bski+18),
-		  (unsigned int *)(c->bgpsec_bski+19)) )
-      )
+    if ( strnlen(c->bgpsec_ski, (2 * BGPSEC_SKI_LENGTH))
+	 != (BGPSEC_SKI_LENGTH * 2) ) {
+      cf_error("BGPSEC: bad length of the configured SKI value");
+    }
+
+    if ( BGPSEC_SKI_LENGTH !=
+	 sscanf(c->bgpsec_ski, "%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx",
+		(unsigned char *)c->bgpsec_bski,
+		(unsigned char *)(c->bgpsec_bski+1),
+		(unsigned char *)(c->bgpsec_bski+2),
+		(unsigned char *)(c->bgpsec_bski+3),
+		(unsigned char *)(c->bgpsec_bski+4),
+		(unsigned char *)(c->bgpsec_bski+5),
+		(unsigned char *)(c->bgpsec_bski+6),
+		(unsigned char *)(c->bgpsec_bski+7),
+		(unsigned char *)(c->bgpsec_bski+8),
+		(unsigned char *)(c->bgpsec_bski+9),
+		(unsigned char *)(c->bgpsec_bski+10),
+		(unsigned char *)(c->bgpsec_bski+11),
+		(unsigned char *)(c->bgpsec_bski+12),
+		(unsigned char *)(c->bgpsec_bski+13),
+		(unsigned char *)(c->bgpsec_bski+14),
+		(unsigned char *)(c->bgpsec_bski+15),
+		(unsigned char *)(c->bgpsec_bski+16),
+		(unsigned char *)(c->bgpsec_bski+17),
+		(unsigned char *)(c->bgpsec_bski+18),
+		(unsigned char *)(c->bgpsec_bski+19)) ) {
       cf_error("BGPSEC: unable to parse the configured SKI value");
+    }
+    
+
+    log(L_WARN "BPGPSEC: bgpsec_key_repo_path is %s", c->bgpsec_key_repo_path);
+    if (c->bgpsec_key_repo_path) {
+      int krp = strnlen(c->bgpsec_key_repo_path, 10);
+      if ( 0 < krp && krp < 2 ) {
+	log(L_WARN "BPGPSEC: unable to parse bpgsec_key_repo_path: %d", krp);
+	cf_error("BGPSEC:: unable to parse bpgsec_key_repo_path");
+      }
+    }
+    log(L_WARN "BPGPSEC: bgpsec_key_repo_path is %s", c->bgpsec_priv_key_path);
+    if (c->bgpsec_priv_key_path) {
+      int pkp = strnlen(c->bgpsec_priv_key_path, 10);
+      if ( 0 < pkp && pkp < 2 ) {
+	log(L_WARN "BPGPSEC: unable to parse bpgsec_key_repo_path: %d", pkp);
+	cf_error("BGPSEC:: unable to parse bpgsec_key_repo_path");
+      }
+    }
+
   }
 #endif
 

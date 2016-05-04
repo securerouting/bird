@@ -70,6 +70,7 @@ struct bgp_config {
   /* BGPSec */
   /* cannot be ifdef'd out due to config.Y compatibility */
   int   enable_bgpsec;                  /* Whether neighbor should be a BGPSec peer */
+  int   bgpsec_prefer;                  /* Whether validly signed BGPsec routes are prefered during route selection */
   int   bgpsec_require;                 /* Whether neighbor should be a BGPSec peer */
   char *bgpsec_ski;                     /* local subject key id */
   u8    bgpsec_bski[BGPSEC_SKI_LENGTH]; /* binary local SKI */

@@ -616,7 +616,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
       }
     }
     else  {
-      log(L_DEBUG "decode_bgpsec: %d < %d : good signature at AS: %d",
+      log(L_DEBUG "decode_bgpsec: %d < %d : good signature AS: %d",
 	  bgp->local_as, bgp->remote_as, signersAS);
     }
 
@@ -958,12 +958,10 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   static u8 sigBuff[BGPSEC_MAX_SIG_LENGTH];
   static u8 hashBuff[BGPSEC_SIG_HASH_LENGTH];
   u8 *hash_p = hashBuff;
-  static u8 bski[BGPSEC_SKI_LENGTH];
 
   /* clean out any previous data in buffers */
   bzero(sigBuff,  BGPSEC_MAX_SIG_LENGTH);
   bzero(hashBuff, BGPSEC_SIG_HASH_LENGTH);
-  bzero(bski,     BGPSEC_SKI_LENGTH);
 
   int signature_len = 0;
   char        oMark = 'O';
@@ -1977,13 +1975,16 @@ bgp_rte_better(rte *new, rte *old)
     return 0;
 
 #ifdef CONFIG_BGPSEC  
-  /* Somewhat arbitrary ordering placement for bgpsec validity check */
-  x = ea_find(new->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
-  y = ea_find(old->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
-  n = x ? 1 : 0;
-  o = y ? 1 : 0;
-  if (n > o)    return 1;
-  if (n < o)    return 0;
+  if ( new_bgp->cf->bgpsec_prefer || old_bgp->cf->bgpsec_prefer )  {
+    /* Somewhat arbitrary (after local pref before as_path, ordering
+     * placement for bgpsec validity check */
+    x = ea_find(new->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
+    y = ea_find(old->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
+    n = x ? 1 : 0;
+    o = y ? 1 : 0;
+    if (n > o)    return 1;
+    if (n < o)    return 0;
+  }
 #endif  
 
   /* RFC 4271 9.1.2.2. a)  Use AS path lengths */

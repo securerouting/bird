@@ -82,9 +82,9 @@ Configuring and Compiling
 If you are using the patch, download BIRD bird-1.4.5.tar.gz from
 http://bird.network.cz/
 
- # tar xvzpf bird-1.4.5.tar.gz 
- # cd bird-1.4.5/
- # patch -p1 < PATH-TO/BIRD-bgpsec-patch-v1.4.5.diff 
+ # tar xvzpf bird-1.5.0.tar.gz 
+ # cd bird-1.5.0/
+ # patch -p1 < PATH-TO/BIRD-bgpsec-patch-v1.5.0.diff 
 
 
 Build it.
@@ -100,7 +100,7 @@ platform.  The OpenSSL arguments will change and may not be necessary
 depending on if you needed to install a ecdsa supporting openssl and
 where you installed it:
 
- # ./configure '--enable-bgpsec' 'CFLAGS=-I/usr/local/openssl-ecdsa/include -g' 'LDFLAGS=-L/usr/local/openssl-ecdsa/lib/'
+ # ./configure '--enable-bgpsec' 
 
 Then make and you should be good to go.
 
@@ -158,6 +158,8 @@ configuration options for the configuration file.  The following is an
 example bgp section from a BIRD configuration file supporting BGPSEC:
 
   protocol bgp {
+  	 # BGPsec configuration
+	 
 	 # AS4 is required for BGPSEC, this must be enabled
          enable as4;
 
@@ -176,13 +178,33 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
 	 bgpsec_priv_key_path "/usr/share/bird/bgpsec-private-keys" ;
 
-	 # Do not allow the peer to set its pcount to 0.  Default is
-         # true.  Set this value to false/0 if you want to allow your
-         # peer to not have their AS included in the effective AS-PATH
-         # lengths of a route (e.g. Route Servers).
-         bgpsec_no_pcount0 1;
+	 # bgpsec_no_pcount0 indicates whether a peer is allowed to
+         # set its pcount to 0.  Default is true.  Set this value to
+         # false/0 if you want to allow your peer to not have their AS
+         # included in the effective AS_PATH of a route (e.g. Route
+         # Servers).
+	 bgpsec_no_pcount0 1;
 
-	 # non-bgpsec info
+	 # bgpsec_prefer indicates whether validly signed bgpsec
+         # routes are preferred to non-valid and/or non-signed
+         # routes. Default is true.
+	 # This decision is made after local pref and before as_path
+         # comparision in the best route algorithm.
+	 bgpsec_prefer 1;
+
+	 # bgpsec_require indicates whether bgpsec signed routes are
+         # required on this connection.  If true, Non-signed routes
+         # will not be accepted.  Default is false.
+	 bgpsec_require 0;
+
+         # bgpsec_no_invalid_routes indicates if invalid routes are
+         # accepted.  If true, routes that fail the BGPsec validity
+         # check are not accepted.  Default is false.
+	 bgpsec_no_invalid_routes 0;
+
+
+	 # Non BGPsec configuration
+	 
          description "BGP Link";
          local as 64521;
 
