@@ -426,7 +426,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	    }
 
 	  DBG("Processing bucket %p\n", buck);
-	  a_size = bgp_encode_attrs(p, w+2, buck->eattrs, 2048, buck);
+	  a_size = bgp_encode_attrs(p, w+2, buck->eattrs, 2048, buck, NULL);
 
 	  if (a_size < 0)
 	    {
@@ -479,6 +479,22 @@ same_iface(struct bgp_proto *p, ip_addr *ip)
   return n && p->neigh && n->iface == p->neigh->iface;
 }
 
+#ifdef CONFIG_BGPSEC
+struct prefix
+bgpsec_get_buck_prefix(struct bgp_bucket *buck) {
+  struct prefix rPrefix;
+  bzero(&rPrefix, sizeof(struct prefix));
+
+  if ( !EMPTY_LIST(buck->prefixes) )    {
+    struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
+    log(L_DEBUG "\tbgpsec_get_buck_prefix: %I/%d\n", px->n.prefix, px->n.pxlen);
+    rPrefix.addr = px->n.prefix;
+    rPrefix.len  = px->n.pxlen;
+  }
+  return rPrefix;
+}
+#endif
+
 static byte *
 bgp_create_update(struct bgp_conn *conn, byte *buf)
 {
@@ -506,7 +522,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 #endif
       *tmp++ = 1;
       ea->attrs[0].u.ptr->length = 3 + bgp_encode_prefixes(p, tmp, buck, remains-11);
-      size = bgp_encode_attrs(p, w, ea, remains);
+      size = bgp_encode_attrs(p, w, ea, remains, NULL);
       ASSERT(size >= 0);
       w += size;
       remains -= size;
@@ -528,7 +544,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	  rem_stored = remains;
 	  w_stored = w;
 
-	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048);
+	  struct prefix nlri_prefix =  bgpsec_get_buck_prefix(buck);
+	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048, &nlri_prefix);
 
 	  if (size < 0)
 	    {
@@ -634,11 +651,11 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 #endif
 	  
 	  *tmp++ = 0;	       /* reserved byte (No SNPA information) */
-	  byte *nlri = tmp;
+	  /*	  byte *nlri = tmp;*/
 	  tmp += bgp_encode_prefixes(p, tmp, buck, remains - (8+3+32+1));
 	  ea->attrs[0].u.ptr->length = tmp - tstart;
 
-	  size = bgp_encode_attrs(p, w, ea, remains);
+	  size = bgp_encode_attrs(p, w, ea, remains, &nlri_prefix);
 
 	  ASSERT(size >= 0);
 	  w += size;
@@ -646,7 +663,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 
 #ifdef CONFIG_BGPSEC
 	  if (p->conn->peer_bgpsec_support)  {
-	    int bgpsec_len = encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, nlri);
+	    int bgpsec_len = encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, &nlri_prefix);
 
 	    if ( bgpsec_len < 0 ) {
 	      log(L_ERR "encode_bgpsec_attrs: bgpsec signing failed");
@@ -658,7 +675,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 #endif
 
 	  break;
-	}
+	}  /* end while */
     }
 
   size = w - (buf+4);
@@ -1366,7 +1383,7 @@ bgp_do_rx_update(struct bgp_conn *conn,
   while (nlri_len)
     {
       DECODE_PREFIX(nlri, nlri_len);
-      DBG("Add %I/%d\n", prefix, pxlen);
+      BGP_TRACE_RL(&rl_rcv_update, D_PACKETS, "Add %I/%d\n", prefix, pxlen);
 
       if (a0)
 	bgp_rte_update(p, prefix, pxlen, path_id, &last_id, &src, a0, &a);
@@ -1547,6 +1564,7 @@ bgp_rx_update(struct bgp_conn *conn, byte *pkt, int len)
   nlri_len = len - withdrawn_len - attr_len - 23;
   if (!attr_len && nlri_len)
     goto malformed;
+
   DBG("Sizes: withdrawn=%d, attrs=%d, NLRI=%d\n", withdrawn_len, attr_len, nlri_len);
 
   lp_flush(bgp_linpool);

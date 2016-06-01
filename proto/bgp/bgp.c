@@ -1373,8 +1373,6 @@ bgp_check_config(struct bgp_config *c)
       cf_error("BGPSEC: unable to parse the configured SKI value");
     }
     
-
-    log(L_WARN "BPGPSEC: bgpsec_key_repo_path is %s", c->bgpsec_key_repo_path);
     if (c->bgpsec_key_repo_path) {
       int krp = strnlen(c->bgpsec_key_repo_path, 10);
       if ( 0 < krp && krp < 2 ) {
@@ -1382,12 +1380,19 @@ bgp_check_config(struct bgp_config *c)
 	cf_error("BGPSEC:: unable to parse bpgsec_key_repo_path");
       }
     }
-    log(L_WARN "BPGPSEC: bgpsec_key_repo_path is %s", c->bgpsec_priv_key_path);
     if (c->bgpsec_priv_key_path) {
       int pkp = strnlen(c->bgpsec_priv_key_path, 10);
       if ( 0 < pkp && pkp < 2 ) {
 	log(L_WARN "BPGPSEC: unable to parse bpgsec_key_repo_path: %d", pkp);
 	cf_error("BGPSEC:: unable to parse bpgsec_key_repo_path");
+      }
+    }
+    if (c->bgpsec_orig_px_len > 0) {
+      int i;
+      for(i=0; i < c->bgpsec_orig_px_len; i++) {
+	char add_string[50];
+	ipa_ntop(c->bgpsec_orig_px[i].addr, add_string);
+	log(L_TRACE "BPGPSEC: Adding origination prefix: %s/%d", add_string, c->bgpsec_orig_px[i].len);
       }
     }
 

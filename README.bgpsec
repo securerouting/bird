@@ -6,7 +6,7 @@
   5. License(s)
 
 
-1. BGPSEC patch
+1. BGPSEC
 
 This code adds BGPSEC capability to the BIRD BGP implementation.
 
@@ -71,22 +71,20 @@ Then make and make install
 
 Configuring and Compiling
 
-If you are using the patch, download BIRD bird-1.4.5.tar.gz from
-http://bird.network.cz/
-
+Extract the tar ball.
  # tar xvjpf bird-1.5.0.-bgpsec-0.7.tar.bz2
  # cd bird-1.5.0-bgpsec-0.7/
 
 Build it.
-First rebuild configure (configure.in was changed by the patch):
+BIRD uses autoconf for local configuration.
 
  # autoconf 
 
-Then Use configure flags that look something like the following.  if a
-version of OpenSSL that supported ecdsa had to be installed in a
-non-standard location on your platform, it will be necessary to add
-something like '-I/path/to//openssl-ecdsa/include' and
-'-L/path/to/openssl-ecdsa/lib' options to the configure command.
+Then Use configure flags that look like the following.  if a version
+of OpenSSL that supported ecdsa had to be installed in a non-standard
+location on your platform, it will be necessary to add something like
+'-I/path/to//openssl-ecdsa/include' and '-L/path/to/openssl-ecdsa/lib'
+options to the configure command.
 
  # ./configure '--enable-bgpsec' 
 
@@ -109,6 +107,15 @@ The generated public key is stored in '--public-key-dir' (default
 The file names are based on the AS number and the SKI value associated
 with the keys, 'ASN.SKI#', e.g. for an ASN of 12345,
 12345.40C70252FE48D29401E9156ADBECF3EF42296AE4.
+
+The directory location used for public/private keys should be created
+before running keytool.py.  The user running keytool.py must have
+write permissions to these directories.  The user BIRD runs under will
+need read permissions for all the key directory and files. For
+security reasons, the private key directories/files should not be
+publicly readable.  The BIRD configuration file also requires
+configuration to indicate which directories to use for public and
+private keys.
 
 The public key can be copied to other machines and placed in the same
 public key directory without the private key. Likewise, keys from
@@ -224,8 +231,8 @@ This BGPSEC code created by Parsons, Inc.
 (c) 2013-2016 Parsons, Inc.
 All Rights Reserved
 
-Code within this patch is dual copyrighted under both the GPLv2+ and
-the BSD license.  It can be used under either license below:
+The BGPsec code by Parsons is dual copyrighted under both the GPLv2+
+and the BSD license.  It can be used under either license below:
 
 
 GPLv2+

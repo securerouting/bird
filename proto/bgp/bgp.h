@@ -25,23 +25,23 @@
 struct linpool;
 struct eattr;
 
-#ifdef CONFIG_BGPSEC
 /* BGPSec constants */
+/* Not ifdef'd out because some of the constants are used by variables
+ * needed by config.Y */
 #define BGPSEC_VERSION	            0
 /* currently capability is arbitrary number from private use */
 #define BGPSEC_CAPABILITY           212
 #define BGPSEC_SKI_LENGTH           20
 #define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
 #define BGPSEC_MAX_SIG_LENGTH       80  
- /* sig hash length is somewhat arbitrary, 
-    = 20 + MaxASPathLength*(28 + max_sig_length).
-    As of 2016, max unique AS Path length found is 14.
-    This value will allowy for for a hash buffer that can handle an AS
-    path length ~47 long
+ /* sig hash length is somewhat arbitrary, = 20 + MaxASPathLength*(28
+    + max_sig_length).  As of 2016, max unique AS Path length found
+    live looks to be ~14.  This value will allowy for for a hash
+    buffer that can handle an AS path length ~47 long
  */
 #define BGPSEC_SIG_HASH_LENGTH      5120
-#define BGPSEC_MAX_INFO_ATTR_LENGTH 0   /* XXX this needs to be checked */
-#endif
+#define BGPSEC_MAX_INFO_ATTR_LENGTH 0    /* XXX this needs to be checked */
+#define BGPSEC_MAX_ORIG_PX_ARRAY    10 /* Max number of origination addresses */
 
 struct bgp_config {
   struct proto_config c;
@@ -69,16 +69,19 @@ struct bgp_config {
 
   /* BGPSec */
   /* cannot be ifdef'd out due to config.Y compatibility */
-  int   enable_bgpsec;                  /* Whether neighbor should be a BGPSec peer */
-  int   bgpsec_prefer;                  /* Whether validly signed BGPsec routes are prefered during route selection */
-  int   bgpsec_require;                 /* Whether neighbor should be a BGPSec peer */
-  char *bgpsec_ski;                     /* local subject key id */
-  u8    bgpsec_bski[BGPSEC_SKI_LENGTH]; /* binary local SKI */
-  char *bgpsec_key_repo_path;           /* Path to the public key repository */
-  char *bgpsec_priv_key_path;           /* Path to the private key location */
-  int   bgpsec_save_binary_keys;        /* Save a copy of the binary key */
-  int   bgpsec_no_pcount0;              /* allow peer to have pcount 0, xxx current default allows */
-  int   bgpsec_no_invalid_routes;       /* should invalid routes be dropped */
+  int     enable_bgpsec;                  /* Whether neighbor should be a BGPSec peer */
+  int     bgpsec_prefer;                  /* Whether validly signed BGPsec routes are prefered during route selection */
+  int     bgpsec_require;                 /* Whether neighbor is required to be a BGPSec peer */
+  char   *bgpsec_ski;                     /* local subject key id */
+  u8      bgpsec_bski[BGPSEC_SKI_LENGTH]; /* binary local SKI */
+  char   *bgpsec_key_repo_path;           /* Path to the public key repository */
+  char   *bgpsec_priv_key_path;           /* Path to the private key location */
+  int     bgpsec_save_binary_keys;        /* Save a copy of the binary key */
+  int     bgpsec_peer_pcount0;            /* allow peer to have pcount 0 */
+  int     bgpsec_local_pcount0;           /* sets local pcounts to 0 */
+  int     bgpsec_no_invalid_routes;       /* should invalid routes be dropped */
+  int     bgpsec_orig_px_len;             /* number of origination addresses */
+  struct prefix bgpsec_orig_px[BGPSEC_MAX_ORIG_PX_ARRAY+1];  /* configured origination addresses */
   
   u32 rr_cluster_id;			/* Route reflector cluster ID, if different from local ID */
   int rr_client;			/* Whether neighbor is RR client of me */
@@ -300,7 +303,7 @@ void bgp_init_bucket_table(struct bgp_proto *);
 void bgp_free_bucket(struct bgp_proto *p, struct bgp_bucket *buck);
 void bgp_init_prefix_table(struct bgp_proto *p, u32 order);
 void bgp_free_prefix(struct bgp_proto *p, struct bgp_prefix *bp);
-unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains);
+unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, struct prefix *nlri_prefix);
 void bgp_get_route_info(struct rte *, byte *buf, struct ea_list *attrs);
 
 inline static void bgp_attach_attr_ip(struct ea_list **to, struct linpool *pool, unsigned attr, ip_addr a)
@@ -371,7 +374,8 @@ void bgp_log_error(struct bgp_proto *p, u8 class, char *msg, unsigned code, unsi
 /* Supported */
 #define BA_BGPSEC_SIGNATURE     0x1E   /* XXX 30 is best guess, draft-ietf-sidr-bgpsec-protocol */
 /* internal use only */
-#define BA_INTERNAL_BGPSEC_VALID  0xdd 
+#define BA_INTERNAL_BGPSEC_VALID    0xdd 
+#define BA_INTERNAL_BGPSEC_INVALID  0xdf
 
 /* BGP connection states */
 
@@ -524,5 +528,43 @@ if ((af == BGP_AF_IPV6) || (af == BGP_AF_IPV4))
   prefix = ipa_and(prefix, ipa_mkmask(b));	\
   pxlen = b;					\
 } while (0)
+
+static char*
+ba_code_to_string (unsigned int code) {
+  if (BA_ORIGIN == code) return "BA_ORIGIN";
+  else if (BA_AS_PATH == code) return "BA_AS_PATH";
+  else if (BA_NEXT_HOP == code) return "BA_NEXT_HOP";
+  else if (BA_MULTI_EXIT_DISC == code) return "BA_MULTI_EXIT_DISC";
+  else if (BA_LOCAL_PREF == code) return "BA_LOCAL_PREF";
+  else if (BA_ATOMIC_AGGR == code) return "BA_ATOMIC_AGGR";
+  else if (BA_AGGREGATOR == code) return "BA_AGGREGATOR";
+  else if (BA_COMMUNITY == code) return "BA_COMMUNITY";
+  else if (BA_ORIGINATOR_ID == code) return "BA_ORIGINATOR_ID";
+  else if (BA_CLUSTER_LIST == code) return "BA_CLUSTER_LIST";
+/* We don't support these: */
+  else if (BA_DPA == code) return "BA_DPA";
+  else if (BA_ADVERTISER == code) return "BA_ADVERTISER";
+  else if (BA_RCID_PATH == code) return "BA_RCID_PATH";
+/* supported? */
+  else if (BA_MP_REACH_NLRI == code) return "BA_MP_REACH_NLRI";
+  else if (BA_MP_UNREACH_NLRI == code) return "BA_MP_UNREACH_NLRI";
+  else if (BA_EXT_COMMUNITY == code) return "BA_EXT_COMMUNITY";
+  else if (BA_AS4_PATH == code) return "BA_AS4_PATH";
+  else if (BA_AS4_AGGREGATOR == code) return "BA_AS4_AGGREGATOR";
+/* not supported */
+  else if (BA_SSA == code) return "BA_SSA";
+  else if (BA_CONNECTOR_ATTR == code) return "BA_CONNECTOR_ATTR";
+  else if (BA_AS_PATHLIMIT == code) return "BA_AS_PATHLIMIT";
+  else if (BA_PMSI_TUNNEL == code) return "BA_PMSI_TUNNEL";
+  else if (BA_TUNNEL_ENCAP == code) return "BA_TUNNEL_ENCAP";
+  else if (BA_TUNNEL_ENGINEERING == code) return "BA_TUNNEL_ENGINEERING";
+  else if (BA_IPV6_EXT_COMMUNITY == code) return "BA_IPV6_EXT_COMMUNITY";
+  else if (BA_AIGP == code) return "BA_AIGP";
+  else if (BA_PE_DIST_LABELS == code) return "BA_PE_DIST_LABELS";
+  else if (BA_ENTROPY_LABELS == code) return "BA_ENTROPY_LABELS";
+  else if (BA_LS_ATTRIBUTE == code) return "BA_LS_ATTRIBUTE";
+  else if (BA_BGPSEC_SIGNATURE == code) return "BA_BGPSEC_SIGNATURE";
+  else return "UNKNOWN BA CODE";
+}
 
 #endif

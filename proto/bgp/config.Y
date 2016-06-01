@@ -37,8 +37,9 @@ CF_KEYWORDS(BGP, LOCAL, NEIGHBOR, AS, HOLD, TIME, CONNECT, RETRY,
 	SECONDARY, ALLOW, BFD, ADD, PATHS, RX, TX, GRACEFUL, RESTART, AWARE,
 	CHECK, LINK, PORT,
         BGPSEC, BGPSEC_SKI, BGPSEC_KEY_REPO_PATH, BGPSEC_PRIV_KEY_PATH,
-	BGPSEC_SAVE_BINARY_KEYS, BGPSEC_PREFER, BGPSEC_NO_PCOUNT0,
-        BGPSEC_REQUIRE, BGPSEC_NO_INVALID_ROUTES)
+	BGPSEC_SAVE_BINARY_KEYS, BGPSEC_PREFER,
+	BGPSEC_PEER_PCOUNT0, BGPSEC_LOCAL_PCOUNT0,
+        BGPSEC_REQUIRE, BGPSEC_NO_INVALID_ROUTES, BGPSEC_ORIGINATION_PREFIX)
 
 CF_GRAMMAR
 
@@ -64,10 +65,12 @@ bgp_proto_start: proto_start BGP {
      BGP_CFG->bgpsec_priv_key_path = 0;
      BGP_CFG->bgpsec_key_repo_path = 0;
      BGP_CFG->bgpsec_prefer = 1;
-     BGP_CFG->bgpsec_no_pcount0 = 1;
+     BGP_CFG->bgpsec_peer_pcount0 = 0;
+     BGP_CFG->bgpsec_local_pcount0 = 0;
      BGP_CFG->bgpsec_no_invalid_routes = 0;
      BGP_CFG->bgpsec_require = 0;
      BGP_CFG->bgpsec_save_binary_keys = 0;
+     BGP_CFG->bgpsec_orig_px_len = 0;
      BGP_CFG->capabilities = 2;
      BGP_CFG->advertise_ipv4 = 1;
      BGP_CFG->interpret_communities = 1;
@@ -157,7 +160,16 @@ bgp_proto:
  | bgp_proto BGPSEC_KEY_REPO_PATH text ';' { BGP_CFG->bgpsec_key_repo_path = $3; }
  | bgp_proto BGPSEC_PRIV_KEY_PATH text ';' { BGP_CFG->bgpsec_priv_key_path = $3; }
  | bgp_proto BGPSEC_SAVE_BINARY_KEYS bool ';' { BGP_CFG->bgpsec_save_binary_keys = $3; }
- | bgp_proto BGPSEC_NO_PCOUNT0 bool ';' { BGP_CFG->bgpsec_no_pcount0 = $3; }
+ | bgp_proto BGPSEC_PEER_PCOUNT0 bool ';' { BGP_CFG->bgpsec_peer_pcount0 = $3; }
+ | bgp_proto BGPSEC_LOCAL_PCOUNT0 bool ';' { BGP_CFG->bgpsec_local_pcount0 = $3; }
+ | bgp_proto BGPSEC_ORIGINATION_PREFIX prefix ';' {
+     if (BGP_CFG->bgpsec_orig_px_len >= BGPSEC_MAX_ORIG_PX_ARRAY)
+     	cf_error("Max number of origination addresses reached: 10");
+     BGP_CFG->bgpsec_orig_px[BGP_CFG->bgpsec_orig_px_len].addr = $3.addr;
+     BGP_CFG->bgpsec_orig_px[BGP_CFG->bgpsec_orig_px_len].len  = $3.len;
+     BGP_CFG->bgpsec_orig_px_len = BGP_CFG->bgpsec_orig_px_len +1;
+   }
+
  | bgp_proto CHECK LINK bool ';' { BGP_CFG->check_link = $4; }
  | bgp_proto BFD bool ';' { BGP_CFG->bfd = $3; cf_check_bfd($3); }
  ;

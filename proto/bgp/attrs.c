@@ -186,6 +186,9 @@ validate_path(struct bgp_proto *p, int as_path, int bs, byte *idata, unsigned in
     }
 
   *ilength = dst - idata;
+
+  log(L_DEBUG "validate_path: AS Path length %d", res);
+
   return res;
 }
 
@@ -301,8 +304,17 @@ int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpo
   ea->attrs[0].flags = BAF_TRANSITIVE;
   ea->attrs[0].type  = EAF_TYPE_AS_PATH;
 
-  byte aspath_len = secp_len / 6;
-  int  pattr_len  = 2 + (4*aspath_len);
+  /* calculate size of as_path from pcount */
+  u8 i, pcount = 0;
+  while ( (secp < (secpath_p + secp_len)) ) {
+    pcount += *secp;
+    secp += 6;
+  }
+  secp = secpath_p;
+  
+  log(L_DEBUG "bgpsec_create_aspath: tot pcount/as path length : %d", pcount);
+  
+  int  pattr_len  = 2 + (4*pcount);
 
   ad = lp_alloc(pool, sizeof(struct adata) + pattr_len);
   ea->attrs[0].u.ptr = ad;
@@ -310,14 +322,17 @@ int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpo
 
   byte *asp = ad->data;
   *asp++ = AS_PATH_SEQUENCE;
-  *asp++ = aspath_len;
+  *asp++ = pcount;
 
-  secp += 2; /* skip flags and pcount */
   while ( (asp < (ad->data + pattr_len)) && (secp < (secpath_p + secp_len)) )
     {
-      memcpy(asp, secp, 4); 
-      asp  += 4;
-      secp += 6;
+      pcount = *secp;
+      secp += 2; /* skip flags as well */
+      for (i=1; i <= pcount; i++) {
+	memcpy(asp, secp, 4); 
+	asp  += 4;
+      }
+      secp += 4;
     }
 
   return 0;
@@ -325,7 +340,7 @@ int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpo
 
 
 /* Marks the route as "Valid" by adding a valid attribute */
-int bgpsec_add_valid_attr(rta *route, struct linpool *pool)
+int bgpsec_add_valid_attr(rta *route, int valid, struct linpool *pool)
 {  
   ea_list *ea;
 
@@ -340,7 +355,7 @@ int bgpsec_add_valid_attr(rta *route, struct linpool *pool)
   ea->attrs[0].flags = BAF_OPTIONAL;
   ea->attrs[0].type  = EAF_TYPE_INT;
   /* value 1 is arbitrary, existence of the attribute indicates valid */
-  ea->attrs[0].u.data = 1;
+  ea->attrs[0].u.data = valid;
 
   return 0;
   
@@ -400,7 +415,8 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
      p, err, path_id, prefix, pxlen and goto 'done:'  */
   int         err = 0;
   u32     path_id = 0;
-  ip_addr  prefix = 0;
+  ip_addr  prefix;
+  memset(&prefix, 0, sizeof(ip_addr));
   int       pxlen = 0;
   
   /* Is it long enough to have a minimal valid bgpseg_path_attr */
@@ -445,10 +461,10 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
     }
 
   /* if not expecting peer pcount=0, check to make sure first pcount!=0 */
-  if ( ( bgp->cf->bgpsec_no_pcount0 ) &&
+  if ( ( 0 == bgp->cf->bgpsec_peer_pcount0 ) &&
        ( 0 == *secPathSeg_p )               )
     {
-      log(L_WARN "decode_bgpsec: %d < %d : pcount = 0 not allowed from this peer, invalid",
+      log(L_WARN "decode_bgpsec: %d < %d : pcount = 0 not allowed from this peer, ignoring",
 	  bgp->local_as, bgp->remote_as);
       /* xxx */
       /* return spcefic error? */
@@ -613,6 +629,8 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
 	log(L_WARN "decode_bgpsec: %d < %d : bad signature at AS: %d, not BGPsec valid",
 	    bgp->local_as, bgp->remote_as, signersAS);
 	valid = 0;
+	/* mark route as invalid */
+	bgpsec_add_valid_attr(route_attr, 0, pool);
       }
     }
     else  {
@@ -648,18 +666,15 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
 	log(L_WARN "decode_bgpsec: %d < %d : bad last signature AS: %d, not BGPsec valid",
 	    bgp->local_as, bgp->remote_as, signersAS);
 	valid = 0;
+	/* mark route as invalid */
+	bgpsec_add_valid_attr(route_attr, 0, pool);
       }
     }
     else {
       log(L_DEBUG "decode_bgpsec: %d < %d : good last sig. AS: %d, marked BGPsec valid",
 	  bgp->local_as, bgp->remote_as, signersAS);
       /* mark route as valid */
-      if ( 0 < bgpsec_add_valid_attr(route_attr, pool) )  {
-	/* xxx currently should never happen, get rid of check? */
-	log(L_WARN "decode_bgpsec: %d < %d : unable to add valid attribute, failing",
-	    bgp->local_as, bgp->remote_as);
-	return IGNORE;
-      }
+      bgpsec_add_valid_attr(route_attr, 1, pool);
     }
   }
 
@@ -677,7 +692,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
      above and defined in bgp.h
   */
   done:
-    log(L_WARN "bgpsec_decode: %d < %d : failed decoding NLRI: %d, ignoring",
+    log(L_WARN "decode_bgpsec: %d < %d : failed decoding NLRI: %d, ignoring",
 	bgp->local_as, bgp->remote_as, err);
     return IGNORE;
     
@@ -908,6 +923,67 @@ bgp_get_attr_len(eattr *a)
 
 #ifdef CONFIG_BGPSEC
 
+int bgpsec_is_origination(struct bgp_config *config, struct prefix *nlri_prefix) {
+  int i=0;
+  for(i=0; i < config->bgpsec_orig_px_len; i++) {
+    if ( (config->bgpsec_orig_px[i].addr == nlri_prefix->addr) &&
+	 (config->bgpsec_orig_px[i].len  == nlri_prefix->len) ) {
+      log(L_TRACE "bgpsec_is_origination:  %I/%d = %I/%d",
+	  config->bgpsec_orig_px[i].addr, config->bgpsec_orig_px[i].len,
+	  nlri_prefix->addr, nlri_prefix->len);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+int is_bgpsec_route(struct bgp_config *config, ea_list *attrs, struct prefix *nlri_prefix) {
+  if (NULL == nlri_prefix) {
+    log(L_TRACE "bgpsec_is_origination: NO NLRI");
+    return 0;
+  }
+  
+  if (  ea_find(attrs, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE)) ||
+	bgpsec_is_origination(config, nlri_prefix) )  {
+    log(L_TRACE "is_bgpsec_route:  This is a bgpsec route");
+    return 1;
+  }
+
+  log(L_TRACE "is_bgpsec_route:  NO bgpsec sig and NOT Origination");
+  return 0;
+}
+
+
+u8 bgpsec_get_pcount(struct bgp_config *config, eattr *asPathAttr) {
+  if (config->bgpsec_local_pcount0)  return 0;
+
+  struct adata *ad = asPathAttr->u.ptr;
+  byte     *asPath = ad->data;
+  int         dLen = ad->length;
+  u8        pcount = 0;
+
+  asPath++; /* skip AS_PATH type */
+  u8 aspLen = *asPath++;
+  u32   pAS = get_u32(asPath);
+
+  if ( config->local_as != pAS ) {
+    return -1;
+  }
+  
+  while ( (config->local_as == pAS) &&
+	  (asPath < (ad->data + dLen)) &&
+	  (pcount < aspLen) )  {
+    pcount += 1;
+    asPath += 4;
+    pAS     = get_u32(asPath);
+  }
+  log(L_TRACE "bgpsec_get_pcount: %d", pcount);
+
+  return(pcount);
+}
+
+
 /* BGPSEC Encode Function */
 /* For the originating AS, add a bgpsec signature attribute to the update */
 /* Otherwise, add an additional signature to the bgpsec signature attribute */
@@ -918,33 +994,43 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
 		   ea_list           *attr_list,
 		   byte              *w,
 		   int                remains,
-		   byte              *nlri)
+		   struct prefix     *nlri_prefix)
 {
-  log(L_TRACE "encode_bgpsec_attr:  %d > %d",
-      conn->bgp->local_as, conn->bgp->remote_as);
+  log(L_TRACE "encode_bgpsec_attr: %d > %d, using NLRI %I/%d\n",
+      conn->bgp->cf->local_as, conn->bgp->cf->remote_as,
+      (nlri_prefix ? nlri_prefix->addr : 0),
+      (nlri_prefix ? nlri_prefix->len  : 0));
 
-  eattr *asPathAttr  = ea_find(attr_list, EA_CODE(EAP_BGP, BA_AS_PATH));
-  eattr *bgpSecAttr  = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
+  int isOrig = bgpsec_is_origination(conn->bgp->cf , nlri_prefix);
 
+  eattr *asPathAttr = ea_find(attr_list, EA_CODE(EAP_BGP, BA_AS_PATH));
   if ( NULL == asPathAttr ) {
       log(L_ERR "encode_bgpsec_attr: Error: %d > %d : AS_Path dose not exists",
 	  conn->bgp->local_as, conn->bgp->remote_as);
       return -1;
   }
-
-  u8 *pathPtr  = (u8 *)&(asPathAttr->u.ptr->data);
-  int numOfAS  = (asPathAttr->u.ptr->length - 2) / 4;
-
-  log(L_DEBUG "encode_bgpsec_attr: %d > %d : #AS: %d",
+  u8       *pathPtr = (u8 *)&(asPathAttr->u.ptr->data);
+  int      numOfAS  = (asPathAttr->u.ptr->length - 2) / 4;
+  log(L_DEBUG "encode_bgpsec_attr: %d > %d : ASP length: %d",
       conn->bgp->local_as, conn->bgp->remote_as, numOfAS);
-      
+
+  eattr *bgpSecAttr = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
+
   /* if this route does not have a BGPsec attribute and this is not
    * the origination, do not add a BGPsec attribute to this update */
-  if ( (NULL == bgpSecAttr ) && ( numOfAS > 1 ) ) {
-    log(L_DEBUG "encode_bgpsec_attr: %d > %d : No BGPsec attribute for this non origination route (#AS %d), BGPsec attribute not added",
+  if ( (NULL == bgpSecAttr ) && (0 == isOrig) )  {
+    log(L_DEBUG "encode_bgpsec_attr: %d > %d : No extant BGPsec attribute, not origination, BGPsec attribute not added",
 	conn->bgp->local_as, conn->bgp->remote_as, numOfAS);
     return 0;
   }
+
+  /* get NLRI information */
+/*  u8     px_len = *nlri++; */
+  int   pxBytes = (nlri_prefix->len+7) / 8;
+/*  ip_addr prefix;
+  bzero(&prefix, sizeof(ip_addr));
+  memcpy(&prefix, nlri, pxBytes);
+  ipa_ntoh(prefix); */
 
   /* must be as_sequence, as_set not allowed for bgpsec */
   if ( pathPtr[0] != AS_PATH_SEQUENCE ) {
@@ -965,7 +1051,6 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
 
   int signature_len = 0;
   char        oMark = 'O';
-
 
   /* load signature hash buffer */
   
@@ -1014,12 +1099,14 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   }
 
   /* Add our own secure path segment */
-  /* pcount = 1, XXX configurable */
-  *hash_p = 1  ;
-  hash_p  += 1;
+  /* set pcount */
+  if ( 0 > (*hash_p++ = bgpsec_get_pcount(conn->bgp->cf, asPathAttr)) ) {
+      log(L_ERR
+	  "encode_bgpsec_attr: Error: failed to get pcount");
+      return -1;
+  }
   /* flags */
-  *hash_p = 0x00; 
-  hash_p  += 1;
+  *hash_p++ = 0x00; 
 
   /* our AS */
   put_u32(hash_p, conn->bgp->local_as);
@@ -1065,17 +1152,6 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
     hash_p       += 6;
   }
 
-  /* get NLRI information */
-  u8     px_len = *nlri++;
-  int   pxBytes = (px_len+7) / 8;
-  ip_addr prefix;
-  bzero(&prefix, sizeof(ip_addr));
-  memcpy(&prefix, nlri, pxBytes);
-  ipa_ntoh(prefix);
-
-  log(L_DEBUG "encode_bgpsec_attr: %d > %d, using NLRI %I/%d\n",
-      conn->bgp->local_as, conn->bgp->remote_as, prefix, px_len);
-
   /* buffer size check */
   if ( (hash_p + 5 + pxBytes) > (hashBuff + BGPSEC_SIG_HASH_LENGTH) ) {
 	log(L_ERR
@@ -1099,9 +1175,9 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   hash_p++;
 
   /* NLRI */
-  *hash_p = px_len;
+  *hash_p = nlri_prefix->len;
   hash_p++;
-  memcpy(hash_p, &prefix, pxBytes);
+  memcpy(hash_p, &(nlri_prefix->addr), pxBytes);
   hash_p += pxBytes;
 
   /* sign */
@@ -1204,11 +1280,14 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
  * Result: Length of the attribute block generated or -1 if not enough space.
  */
 unsigned int
-bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains)
+bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, struct prefix *nlri_prefix)
 {
   unsigned int i, code, type, flags;
   byte *start = w;
   int len, rv;
+#ifdef CONFIG_BGPSEC
+  int isBGPsec = is_bgpsec_route(p->cf, attrs, nlri_prefix);
+#endif  
 
   for(i=0; i<attrs->count; i++)
     {
@@ -1216,13 +1295,15 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains)
       ASSERT(EA_PROTO(a->id) == EAP_BGP);
       code = EA_ID(a->id);
 
-#if defined(IPV6) || defined(CONFIG_BGSPEC)
+#if defined(IPV6) || defined(CONFIG_BGPSEC)
       /* When talking multiprotocol BGP, the NEXT_HOP attributes are used only temporarily. */
       if (code == BA_NEXT_HOP)
 	continue;
 #endif
 
 #ifdef CONFIG_BGPSEC
+      log(L_DEBUG "looking at code %s, as4_session: %d", ba_code_to_string(code), p->as4_session);
+      
       /* Do not send internally used extended attribute.
        * Do not handle the BPGsec attribute here. */
       if ( code == BA_INTERNAL_BGPSEC_VALID  ||
@@ -1231,14 +1312,10 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains)
       }
 
       /* Do not send AS_PATH with the BGPsec attribute. */
-      /* If this is an AS_PATH and the connection is configured for
-       * BPGsec, do not add the AS_PATH attribute if a BGPsec
-       * attribute exists or this is the originatian for the prefix,
-       * ie. AS_Path <= 1 */
-      if ( ( code == BA_AS_PATH ) && ( p->cf->enable_bgpsec ) &&
-	   ( ( ea_find(attrs, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE)) ) ||
-	     ( 1 >= (a->u.ptr->length - 2) / 4 ) )
-	)  {
+      /* If this route is a BGPsec route and BGPsec is enabled on this
+       * connection, do not add the AS_PATH attribute
+       */
+      if ( isBGPsec && (code == BA_AS_PATH) && p->cf->enable_bgpsec ) {
 	continue;
       }
 #endif
@@ -1331,6 +1408,7 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains)
 	goto err_no_buffer;
 
       rv = bgp_encode_attr_hdr(w, flags, code, len);
+      log(L_TRACE "Adding attribute: %s", ba_code_to_string(code));
       ADVANCE(w, remains, rv);
 
       switch (type)
@@ -1980,8 +2058,8 @@ bgp_rte_better(rte *new, rte *old)
      * placement for bgpsec validity check */
     x = ea_find(new->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
     y = ea_find(old->attrs->eattrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
-    n = x ? 1 : 0;
-    o = y ? 1 : 0;
+    n = ( x && (1 == x->u.data) ) ? 1 : 0;
+    o = ( y && (1 == y->u.data) ) ? 1 : 0;
     if (n > o)    return 1;
     if (n < o)    return 0;
   }
@@ -2350,6 +2428,7 @@ bgp_remove_as4_attrs(struct bgp_proto *p, rta *a)
     }
 }
 
+
 /**
  * bgp_decode_attrs - check and decode BGP attributes
  * @conn: connection
@@ -2423,7 +2502,7 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
       len -= l;
       z = attr;
       attr += l;
-      DBG("Attr %02x %02x %d\n", code, flags, l);
+      log(L_DEBUG "Attr %s : %02x %02x %d", ba_code_to_string(code), code, flags, l);
       if (seen[code/8] & (1 << (code%8)))
 	goto malformed;
       if (ATTR_KNOWN(code))
@@ -2677,7 +2756,31 @@ bgp_get_route_info(rte *e, byte *buf, ea_list *attrs)
     buf += bsprintf(buf, "AS%u", origas);
   if (o)
     buf += bsprintf(buf, "%c", "ie?"[o->u.data]);
-  strcpy(buf, "]");
+  strcpy(buf, "] ");
+  buf += 2;
+
+#ifdef CONFIG_BGPSEC
+  eattr  *bsec = ea_find(attrs, EA_CODE(EAP_BGP, BA_INTERNAL_BGPSEC_VALID));
+  /* struct adato *ad = ((struct adata *)p->u.ptr)->data; */
+  byte    *asp = ((struct adata *)p->u.ptr)->data;
+  asp++; /* skip type */
+  int i, asp_len = *asp++;
+  
+  if (bsec) {
+    if (1 == bsec->u.data)
+      buf += bsprintf(buf, "(BSEC VALID:");
+    else 
+      buf += bsprintf(buf, "(BSEC INVALID:");
+
+    if ( asp_len < 40 ) { /* sanity check */
+      for (i=1; i <= asp_len; i++) {
+	buf += bsprintf(buf, " %u", get_u32(asp));
+	asp += 4;
+      }
+    }
+    buf += bsprintf(buf, ")");
+  }
+#endif
 }
 
 
