@@ -161,6 +161,12 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
 	 # enable bgpsec for this connection
          bgpsec on;
 
+	 # bgpsec_origination_prefix sets the route prefixes that this
+	 # router will originate with bgpsec.  One configuration line
+	 # per prefix.
+	 bgpsec_origination_prefix 10.1.1.0/24;
+	 bgpsec_origination_prefix 10.1.2.0/24;
+
 	 # The local BIRD router subject key identifier (SKI) for this
          # connection.  'bgpsec_ski' identifies the (private) key that
          # the local BIRD router should use to sign BGPSEC packets on
@@ -173,18 +179,26 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          bgpsec_key_repo_path "/usr/share/bird/bgpsec-keys/" ;
 	 bgpsec_priv_key_path "/usr/share/bird/bgpsec-private-keys" ;
 
-	 # bgpsec_no_pcount0 indicates whether a peer is allowed to
-         # set its pcount to 0.  Default is true.  Set this value to
-         # false/0 if you want to allow your peer to not have their AS
-         # included in the effective AS_PATH of a route (e.g. Route
-         # Servers).
-	 bgpsec_no_pcount0 1;
+	 # bgpsec_peer_pcount0 indicates whether a peer is allowed to
+         # set its pcount to 0. Set this value to true/1 if you want
+         # to allow your peer to not have their AS included in the
+         # effective AS_PATH of a route (e.g. Route Servers).  Default
+         # is false.
+	 bgpsec_peer_pcount0 0;
+
+	 # bgpsec_local_pcount0 indicates whether to set the local
+         # pcount to 0 when signing routes.  Set this value to true/1
+         # if you want to not have your AS included in the effective
+         # AS_Path at peers. Default is false.
+	 # Note: yours peers will have to be configured to allow this
+         # or the updates will not be accepted.
+	 bgpsec_local_pcount0 0;
 
 	 # bgpsec_prefer indicates whether validly signed bgpsec
          # routes are preferred to non-valid and/or non-signed
-         # routes. Default is true.  This decision is made after the
-         # local pref and before the as_path comparison in the best
-         # route selection algorithm.
+         # routes. This decision is made after the local pref and
+         # before the as_path comparison in the best route selection
+         # algorithm. Default is true.
 	 bgpsec_prefer 1;
 
 	 # bgpsec_require indicates whether bgpsec signed routes are

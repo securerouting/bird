@@ -436,7 +436,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
   /* get signature block pointer */
   byte   *sigBlock_p = bgpSec_p + secPath_len;
   u16   sigBlock_len = get_u16(sigBlock_p);
-  int         algoID = *(bgpSec_p + 2);
+  int         algoID = *(sigBlock_p + 2);
   byte *sigSegment_p = sigBlock_p + 3; /* skip length value and algo ID byte */
 
   /* check algorithm signature ID, we only support one algo. ID
@@ -466,11 +466,10 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
     {
       log(L_WARN "decode_bgpsec: %d < %d : pcount = 0 not allowed from this peer, ignoring",
 	  bgp->local_as, bgp->remote_as);
-      /* xxx */
       /* return spcefic error? */
       return IGNORE;
     }
-
+  
   /* add target AS to signature hash */
   put_u32(hash_p,  bgp->local_as);
   hash_p += 4;
@@ -956,6 +955,7 @@ int is_bgpsec_route(struct bgp_config *config, ea_list *attrs, struct prefix *nl
 
 
 u8 bgpsec_get_pcount(struct bgp_config *config, eattr *asPathAttr) {
+
   if (config->bgpsec_local_pcount0)  return 0;
 
   struct adata *ad = asPathAttr->u.ptr;
@@ -1024,13 +1024,6 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
     return 0;
   }
 
-  /* get NLRI information */
-/*  u8     px_len = *nlri++; */
-  int   pxBytes = (nlri_prefix->len+7) / 8;
-/*  ip_addr prefix;
-  bzero(&prefix, sizeof(ip_addr));
-  memcpy(&prefix, nlri, pxBytes);
-  ipa_ntoh(prefix); */
 
   /* must be as_sequence, as_set not allowed for bgpsec */
   if ( pathPtr[0] != AS_PATH_SEQUENCE ) {
@@ -1099,14 +1092,18 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   }
 
   /* Add our own secure path segment */
-  /* set pcount */
-  if ( 0 > (*hash_p++ = bgpsec_get_pcount(conn->bgp->cf, asPathAttr)) ) {
-      log(L_ERR
-	  "encode_bgpsec_attr: Error: failed to get pcount");
+  /* get pcount */
+  u8 pcount =  bgpsec_get_pcount(conn->bgp->cf, asPathAttr);
+  if ( 0 > pcount) {
+      log(L_ERR "encode_bgpsec_attr: Error: failed to get pcount");
       return -1;
   }
+  /* pcount */
+  *hash_p = pcount;
+  hash_p++;
   /* flags */
-  *hash_p++ = 0x00; 
+  *hash_p = 0x00; 
+  hash_p++;
 
   /* our AS */
   put_u32(hash_p, conn->bgp->local_as);
@@ -1151,6 +1148,8 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
     secPathSeg_p += 6;
     hash_p       += 6;
   }
+
+  int   pxBytes = (nlri_prefix->len+7) / 8;
 
   /* buffer size check */
   if ( (hash_p + 5 + pxBytes) > (hashBuff + BGPSEC_SIG_HASH_LENGTH) ) {
@@ -1223,8 +1222,8 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   put_u16(w, (secPath_len + 6));
   ADVANCE(w, remains, 2);
   /* Add our own secure path segment */
-  /* pcount = 1, XXX configurable */
-  *w = 0x01;
+  /* pcount */
+  *w = pcount;
   ADVANCE(w, remains, 1);
   /* flags */
   *w = 0x00;
