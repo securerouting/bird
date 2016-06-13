@@ -60,18 +60,19 @@ p_igp_table(struct proto *p)
 static void
 static_install(struct proto *p, struct static_route *r, struct iface *ifa)
 {
-  rta a;
+  rta *ap = alloca(RTA_MAX_SIZE);
   rte *e;
 
   if (!(r->state & STS_WANT) && r->dest != RTD_UNICAST)
     return;
 
   DBG("Installing static route %N, rtd=%d\n", r->net, r->dest);
-  bzero(&a, sizeof(a));
-  a.src = p->main_source;
-  a.source = ((r->dest == RTD_UNICAST) && ipa_zero(r->via)) ? RTS_STATIC_DEVICE : RTS_STATIC;
-  a.scope = SCOPE_UNIVERSE;
-  a.dest = r->dest;
+  bzero(ap, RTA_MAX_SIZE);
+  ap->src = p->main_source;
+  ap->source = ((r->dest == RTD_UNICAST) && ipa_zero(r->via)) ? RTS_STATIC_DEVICE : RTS_STATIC;
+  ap->scope = SCOPE_UNIVERSE;
+  ap->dest = r->dest;
+
   if (r->dest == RTD_UNICAST)
     {
       struct static_route *r2;
@@ -84,11 +85,14 @@ static_install(struct proto *p, struct static_route *r, struct iface *ifa)
 
 	if (r2->state & STS_WANT)
 	  {
-	    struct nexthop *nh = nhp ? alloca(sizeof(struct nexthop)) : &(a.nh);
+	    struct nexthop *nh = nhp ? alloca(NEXTHOP_MAX_SIZE) : &(ap->nh);
 	    nh->gw = r2->via;
 	    nh->iface = r2->neigh->iface;
 	    nh->weight = r2->weight;
-	    nh->labels = 0;
+	    nh->labels = r2->label_count;
+	    for (int i=0; i<nh->labels; i++)
+	      nh->label[i] = r2->label_stack[i];
+
 	    nh->next = NULL;
 	    if (nhp)
 	      nhp->next = nh;
@@ -111,11 +115,11 @@ static_install(struct proto *p, struct static_route *r, struct iface *ifa)
   r->state |= STS_INSTALLED_ANY;
 
   if (r->dest == RTDX_RECURSIVE)
-    rta_set_recursive_next_hop(p->main_channel->table, &a, p_igp_table(p), &r->via, &r->via);
+    rta_set_recursive_next_hop(p->main_channel->table, ap, p_igp_table(p), &r->via, &r->via);
 
   /* We skip rta_lookup() here */
 
-  e = rte_get_temp(&a);
+  e = rte_get_temp(ap);
   e->pflags = 0;
 
   if (r->cmds)

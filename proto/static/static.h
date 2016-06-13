@@ -35,9 +35,11 @@ struct static_route {
   struct static_route *mp_next;		/* Nexthops for multipath routes */
   struct f_inst *cmds;			/* List of commands for setting attributes */
   u32 state;				/* Current state: STS_* */
-  int use_bfd;				/* Configured to use BFD */
   int weight;				/* Multipath next hop weight */
+  byte use_bfd;				/* Configured to use BFD */
+  byte label_count;			/* Number of labels in stack */
   struct bfd_request *bfd_req;		/* BFD request, if BFD is used */
+  u32 *label_stack;			/* Label stack if label_count > 0 */
 };
 
 #define STS_INSTALLED		0x1
