@@ -207,7 +207,7 @@ validate_as4_path(struct bgp_proto *p, struct adata *path)
 static int
 bgp_check_next_hop(struct bgp_proto *p UNUSED, byte *a, int len)
 {
-#if defined(IPV6) || defined(CONFIG_BGPSEC)
+#if defined(IPV6)
   return IGNORE;
 #else
   ip_addr addr;
@@ -572,6 +572,8 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
 	bgp->local_as, bgp->remote_as, prefix, pxlen);
   }
   else {
+    log(L_DEBUG "decode_bgpsec: %d < %d : No NLRI or Unknown Address Family: %d\n",
+	bgp->local_as, bgp->remote_as, af);
     /* unknown Address Family */
     return IGNORE;
   }
@@ -927,7 +929,7 @@ int bgpsec_is_origination(struct bgp_config *config, struct prefix *nlri_prefix)
   for(i=0; i < config->bgpsec_orig_px_len; i++) {
     if ( (config->bgpsec_orig_px[i].addr == nlri_prefix->addr) &&
 	 (config->bgpsec_orig_px[i].len  == nlri_prefix->len) ) {
-      log(L_TRACE "bgpsec_is_origination:  %I/%d = %I/%d",
+      log(L_TRACE "BGPsec Origination Route:  %I/%d = %I/%d",
 	  config->bgpsec_orig_px[i].addr, config->bgpsec_orig_px[i].len,
 	  nlri_prefix->addr, nlri_prefix->len);
       return 1;
@@ -939,17 +941,17 @@ int bgpsec_is_origination(struct bgp_config *config, struct prefix *nlri_prefix)
 
 int is_bgpsec_route(struct bgp_config *config, ea_list *attrs, struct prefix *nlri_prefix) {
   if (NULL == nlri_prefix) {
-    log(L_TRACE "bgpsec_is_origination: NO NLRI");
+    log(L_TRACE "is_bgpsec_route:  Not BGPsec route: No NLRI");
     return 0;
   }
   
   if (  ea_find(attrs, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE)) ||
 	bgpsec_is_origination(config, nlri_prefix) )  {
-    log(L_TRACE "is_bgpsec_route:  This is a bgpsec route");
+    log(L_TRACE "is_bgpsec_route:  BGPsec route : %I", nlri_prefix->addr);
     return 1;
   }
 
-  log(L_TRACE "is_bgpsec_route:  NO bgpsec sig and NOT Origination");
+  log(L_TRACE "is_bgpsec_route:  Not BGPsec route : %I", nlri_prefix->addr);
   return 0;
 }
 
@@ -1294,14 +1296,14 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
       ASSERT(EA_PROTO(a->id) == EAP_BGP);
       code = EA_ID(a->id);
 
-#if defined(IPV6) || defined(CONFIG_BGPSEC)
+#if defined(IPV6)
       /* When talking multiprotocol BGP, the NEXT_HOP attributes are used only temporarily. */
       if (code == BA_NEXT_HOP)
 	continue;
 #endif
 
 #ifdef CONFIG_BGPSEC
-      log(L_DEBUG "looking at code %s, as4_session: %d", ba_code_to_string(code), p->as4_session);
+      log(L_DEBUG "bgp_encode_attrs: Attr %s, as4_session: %d", ba_code_to_string(code), p->as4_session);
       
       /* Do not send internally used extended attribute.
        * Do not handle the BPGsec attribute here. */
@@ -1314,7 +1316,7 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
       /* If this route is a BGPsec route and BGPsec is enabled on this
        * connection, do not add the AS_PATH attribute
        */
-      if ( isBGPsec && (code == BA_AS_PATH) && p->cf->enable_bgpsec ) {
+      if ( isBGPsec && p->cf->enable_bgpsec && (code == BA_AS_PATH) ) {
 	continue;
       }
 #endif
@@ -2459,7 +2461,7 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
   byte         *bgpsec_start = 0;
 #endif
 /* mp_reach attr is required for ipv6 or bgpsec, see mandatory check below */
-#if defined(IPV6) || defined(CONFIG_BGPSEC)
+#if defined(IPV6)
   mandatory = 0;
 #endif
 
@@ -2501,7 +2503,8 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
       len -= l;
       z = attr;
       attr += l;
-      log(L_DEBUG "Attr %s : %02x %02x %d", ba_code_to_string(code), code, flags, l);
+      log(L_DEBUG "%s: BGP Decode: Attr %s : %02x %02x %d",
+	  conn->bgp->p.name, ba_code_to_string(code), code, flags, l);
       if (seen[code/8] & (1 << (code%8)))
 	goto malformed;
       if (ATTR_KNOWN(code))
@@ -2536,7 +2539,7 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
 #ifdef CONFIG_BGPSEC
 	  else if (code == BA_BGPSEC_SIGNATURE)
 	    {
-	      log(L_DEBUG "UPDATE: message has BA_BGPSEC_SIGNATURE");
+/*	      log(L_DEBUG "UPDATE: message has BA_BGPSEC_SIGNATURE"); */
 	      /* Special case, attribute must be parsed and
 	         cryptographically checked.  */
 	      /* AS_PATH should not be in the same update with a
@@ -2621,12 +2624,19 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
   if (withdraw)
     goto withdraw;
 
-#if defined(IPV6) || defined(CONFIG_BGPSEC)
-  /* If we received MP_REACH_NLRI we should check mandatory attributes */
+#if defined(IPV6)
+  /* If we received MP_REACH_NLRI mandatory prefix is avalaible */
   if (bgp->mp_reach_len != 0)
     mandatory = 1;
 #endif
-
+  
+#ifdef CONFIG_BGPSEC
+  /* If we received MP_REACH_NLRI or the old nlri_len is available,
+   * mandatory prefix is available */
+  if ( (bgp->mp_reach_len != 0) || (nlri_len != 0) )
+    mandatory = 1;
+#endif
+  
   /* If there is no (reachability) NLRI, we should exit now */
   if (! mandatory)
     return a;
@@ -2650,6 +2660,10 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
   }
 
   if ( (0 != bgpsec_len) && (0 != bgpsec_start) ) {
+    if (bgp->mp_reach_len == 0)  {
+      log(L_WARN "UPDATE: Malformed: BGPsec attribute requires MP_REACH");
+      goto malformed;
+    }
     if ( decode_bgpsec_attr(bgp, bgpsec_start, bgpsec_len, a, pool) < 0 ) {
 	errcode = BGP_UPD_ERROR_MALFORMED_ATTR;
 	goto err;

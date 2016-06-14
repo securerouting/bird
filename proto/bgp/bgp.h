@@ -531,40 +531,42 @@ if ((af == BGP_AF_IPV6) || (af == BGP_AF_IPV4))
 
 static char*
 ba_code_to_string (unsigned int code) {
-  if (BA_ORIGIN == code) return "BA_ORIGIN";
-  else if (BA_AS_PATH == code) return "BA_AS_PATH";
-  else if (BA_NEXT_HOP == code) return "BA_NEXT_HOP";
-  else if (BA_MULTI_EXIT_DISC == code) return "BA_MULTI_EXIT_DISC";
-  else if (BA_LOCAL_PREF == code) return "BA_LOCAL_PREF";
-  else if (BA_ATOMIC_AGGR == code) return "BA_ATOMIC_AGGR";
-  else if (BA_AGGREGATOR == code) return "BA_AGGREGATOR";
-  else if (BA_COMMUNITY == code) return "BA_COMMUNITY";
-  else if (BA_ORIGINATOR_ID == code) return "BA_ORIGINATOR_ID";
-  else if (BA_CLUSTER_LIST == code) return "BA_CLUSTER_LIST";
+  switch (code) {
+  case BA_ORIGIN:              return "BA_ORIGIN";
+  case BA_AS_PATH:             return "BA_AS_PATH";
+  case BA_NEXT_HOP:            return "BA_NEXT_HOP";
+  case BA_MULTI_EXIT_DISC:     return "BA_MULTI_EXIT_DISC";
+  case BA_LOCAL_PREF:          return "BA_LOCAL_PREF";
+  case BA_ATOMIC_AGGR:         return "BA_ATOMIC_AGGR";
+  case BA_AGGREGATOR:          return "BA_AGGREGATOR";
+  case BA_COMMUNITY:           return "BA_COMMUNITY";
+  case BA_ORIGINATOR_ID:       return "BA_ORIGINATOR_ID";
+  case BA_CLUSTER_LIST:        return "BA_CLUSTER_LIST";
 /* We don't support these: */
-  else if (BA_DPA == code) return "BA_DPA";
-  else if (BA_ADVERTISER == code) return "BA_ADVERTISER";
-  else if (BA_RCID_PATH == code) return "BA_RCID_PATH";
+  case BA_DPA:                 return "BA_DPA";
+  case BA_ADVERTISER:          return "BA_ADVERTISER";
+  case BA_RCID_PATH:           return "BA_RCID_PATH";
 /* supported? */
-  else if (BA_MP_REACH_NLRI == code) return "BA_MP_REACH_NLRI";
-  else if (BA_MP_UNREACH_NLRI == code) return "BA_MP_UNREACH_NLRI";
-  else if (BA_EXT_COMMUNITY == code) return "BA_EXT_COMMUNITY";
-  else if (BA_AS4_PATH == code) return "BA_AS4_PATH";
-  else if (BA_AS4_AGGREGATOR == code) return "BA_AS4_AGGREGATOR";
+  case BA_MP_REACH_NLRI:       return "BA_MP_REACH_NLRI";
+  case BA_MP_UNREACH_NLRI:     return "BA_MP_UNREACH_NLRI";
+  case BA_EXT_COMMUNITY:       return "BA_EXT_COMMUNITY";
+  case BA_AS4_PATH:            return "BA_AS4_PATH";
+  case BA_AS4_AGGREGATOR:      return "BA_AS4_AGGREGATOR";
 /* not supported */
-  else if (BA_SSA == code) return "BA_SSA";
-  else if (BA_CONNECTOR_ATTR == code) return "BA_CONNECTOR_ATTR";
-  else if (BA_AS_PATHLIMIT == code) return "BA_AS_PATHLIMIT";
-  else if (BA_PMSI_TUNNEL == code) return "BA_PMSI_TUNNEL";
-  else if (BA_TUNNEL_ENCAP == code) return "BA_TUNNEL_ENCAP";
-  else if (BA_TUNNEL_ENGINEERING == code) return "BA_TUNNEL_ENGINEERING";
-  else if (BA_IPV6_EXT_COMMUNITY == code) return "BA_IPV6_EXT_COMMUNITY";
-  else if (BA_AIGP == code) return "BA_AIGP";
-  else if (BA_PE_DIST_LABELS == code) return "BA_PE_DIST_LABELS";
-  else if (BA_ENTROPY_LABELS == code) return "BA_ENTROPY_LABELS";
-  else if (BA_LS_ATTRIBUTE == code) return "BA_LS_ATTRIBUTE";
-  else if (BA_BGPSEC_SIGNATURE == code) return "BA_BGPSEC_SIGNATURE";
-  else return "UNKNOWN BA CODE";
+  case BA_SSA:                 return "BA_SSA";
+  case BA_CONNECTOR_ATTR:      return "BA_CONNECTOR_ATTR";
+  case BA_AS_PATHLIMIT:        return "BA_AS_PATHLIMIT";
+  case BA_PMSI_TUNNEL:         return "BA_PMSI_TUNNEL";
+  case BA_TUNNEL_ENCAP:        return "BA_TUNNEL_ENCAP";
+  case BA_TUNNEL_ENGINEERING:  return "BA_TUNNEL_ENGINEERING";
+  case BA_IPV6_EXT_COMMUNITY:  return "BA_IPV6_EXT_COMMUNITY";
+  case BA_AIGP:                return "BA_AIGP";
+  case BA_PE_DIST_LABELS:      return "BA_PE_DIST_LABELS";
+  case BA_ENTROPY_LABELS:      return "BA_ENTROPY_LABELS";
+  case BA_LS_ATTRIBUTE:        return "BA_LS_ATTRIBUTE";
+  case BA_BGPSEC_SIGNATURE:    return "BA_BGPSEC_SIGNATURE";
+  default:                     return "UNKNOWN BA CODE";
+  }
 }
 
 #endif

@@ -351,7 +351,7 @@ bgp_encode_prefixes(struct bgp_proto *p, byte *w, struct bgp_bucket *buck, unsig
   while (!EMPTY_LIST(buck->prefixes) && (remains >= (5+sizeof(ip_addr))))
     {
       struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
-      DBG("\tDequeued route %I/%d\n", px->n.prefix, px->n.pxlen);
+      log(L_DEBUG "\tEncode Prefixes: Dequeued route %I/%d", px->n.prefix, px->n.pxlen);
 
       if (p->add_path_tx)
 	{
@@ -371,6 +371,39 @@ bgp_encode_prefixes(struct bgp_proto *p, byte *w, struct bgp_bucket *buck, unsig
       bgp_free_prefix(p, px);
       // fib_delete(&p->prefix_fib, px);
     }
+  return w - start;
+}
+
+/* This encodes the first prefix in buck->prefixes. It doesn't dequeue it. */
+static unsigned int
+bgp_encode_prefix_noDequeue(struct bgp_proto *p, byte *w, struct bgp_bucket *buck, unsigned int remains)
+{
+  byte *start = w;
+  ip_addr a;
+  int bytes;
+
+  if (!EMPTY_LIST(buck->prefixes) && (remains >= (5+sizeof(ip_addr)))) {
+    struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
+    log(L_DEBUG "\tEncode Prefix: %I/%d", px->n.prefix, px->n.pxlen);
+
+    if (p->add_path_tx)
+      {
+	put_u32(w, px->path_id);
+	w += 4;
+	remains -= 4;
+      }
+
+    *w++ = px->n.pxlen;
+    bytes = (px->n.pxlen + 7) / 8;
+    a = px->n.prefix;
+    ipa_hton(a);
+    memcpy(w, &a, bytes);
+    w += bytes;
+    remains -= bytes + 1;
+    /* rem_node(&px->bucket_node);
+       bgp_free_prefix(p, px);    */
+    // fib_delete(&p->prefix_fib, px);
+  }
   return w - start;
 }
 
@@ -500,12 +533,15 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 {
   struct bgp_proto *p = conn->bgp;
   struct bgp_bucket *buck;
-  int size, second, rem_stored;
+  int size, second, rem_stored, wd_size = 0;
   int remains = BGP_MAX_PACKET_LENGTH - BGP_HEADER_LENGTH - 4;
   byte *w, *w_stored, *tmp, *tstart;
   ip_addr *ipp, ip, ip_ll;
   ea_list *ea = NULL; 
   eattr *nh;
+#if !defined(IPV6)
+  int havePrefix = 0;
+#endif
 
   put_u16(buf, 0);
   w = buf+4;
@@ -513,6 +549,14 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
   if ((buck = p->withdraw_bucket) && !EMPTY_LIST(buck->prefixes))
     {
       DBG("Withdrawn routes:\n");
+#if !defined(IPV6)
+      /* For IPv4, add backwards compatible withdraw and MP_UNREACH */
+      wd_size = bgp_encode_prefix_noDequeue(p, w, buck, remains);
+      w += wd_size;
+      remains -= wd_size;
+      put_u16(buf, wd_size);
+#endif
+      /* create MP_UNREACH_NLRI attr */
       tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_UNREACH_NLRI, remains-8);
       *tmp++ = 0;
 #ifdef IPV6
@@ -522,165 +566,191 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 #endif
       *tmp++ = 1;
       ea->attrs[0].u.ptr->length = 3 + bgp_encode_prefixes(p, tmp, buck, remains-11);
+
+      /* add MP_UNREACH_NLRI to Update */
       size = bgp_encode_attrs(p, w, ea, remains, NULL);
       ASSERT(size >= 0);
       w += size;
       remains -= size;
      }
 
-  if (remains >= 3072)
-    {
-      while ((buck = (struct bgp_bucket *) HEAD(p->bucket_queue))->send_node.next)
-	{
-	  if (EMPTY_LIST(buck->prefixes))
-	    {
-	      DBG("Deleting empty bucket %p\n", buck);
-	      rem_node(&buck->send_node);
-	      bgp_free_bucket(p, buck);
-	      continue;
-	    }
+  if (remains >= 3072)  {
+    while ((buck = (struct bgp_bucket *) HEAD(p->bucket_queue))->send_node.next)
+      {
+	if (EMPTY_LIST(buck->prefixes))
+	  {
+	    DBG("Deleting empty bucket %p\n", buck);
+	    rem_node(&buck->send_node);
+	    bgp_free_bucket(p, buck);
+	    continue;
+	  }
 
-	  DBG("Processing bucket %p\n", buck);
-	  rem_stored = remains;
-	  w_stored = w;
+	DBG("Processing bucket %p\n", buck);
+	rem_stored = remains;
+	w_stored = w;
 
-	  struct prefix nlri_prefix =  bgpsec_get_buck_prefix(buck);
-	  size = bgp_encode_attrs(p, w, buck->eattrs, 2048, &nlri_prefix);
+	struct prefix nlri_prefix =  bgpsec_get_buck_prefix(buck);
+	size = bgp_encode_attrs(p, w, buck->eattrs, 2048, &nlri_prefix);
 
-	  if (size < 0)
-	    {
-	      log(L_ERR "%s: Attribute list too long, skipping corresponding routes", p->p.name);
-	      bgp_flush_prefixes(p, buck);
-	      rem_node(&buck->send_node);
-	      bgp_free_bucket(p, buck);
-	      continue;
-	    }
-	  w += size;
-	  remains -= size;
-
-	  /* We have two addresses here in NEXT_HOP eattr. Really.
-	     Unless NEXT_HOP was modified by filter */
-	  nh = ea_find(buck->eattrs, EA_CODE(EAP_BGP, BA_NEXT_HOP));
-	  ASSERT(nh);
-	  second = (nh->u.ptr->length == NEXT_HOP_LENGTH);
-	  ipp = (ip_addr *) nh->u.ptr->data;
-	  ip = ipp[0];
-	  ip_ll = IPA_NONE;
-
-	  if (ipa_equal(ip, p->source_addr))
-	    ip_ll = p->local_link;
-	  else
-	    {
-	      /* If we send a route with 'third party' next hop destinated 
-	       * in the same interface, we should also send a link local 
-	       * next hop address. We use the received one (stored in the 
-	       * other part of BA_NEXT_HOP eattr). If we didn't received
-	       * it (for example it is a static route), we can't use
-	       * 'third party' next hop and we have to use local IP address
-	       * as next hop. Sending original next hop address without
-	       * link local address seems to be a natural way to solve that
-	       * problem, but it is contrary to RFC 2545 and Quagga does not
-	       * accept such routes.
-	       *
-	       * There are two cases, either we have global IP, or
-	       * IPA_NONE if the neighbor is link-local. For IPA_NONE,
-	       * we suppose it is on the same iface, see bgp_update_attrs().
-	       */
-
-	      if (ipa_zero(ip) || same_iface(p, &ip))
-		{
-		  if (second && ipa_nonzero(ipp[1]))
-		    ip_ll = ipp[1];
-		  else
-		    {
-		      switch (p->cf->missing_lladdr)
-			{
-			case MLL_SELF:
-			  ip = p->source_addr;
-			  ip_ll = p->local_link;
-			  break;
-			case MLL_DROP:
-			  log(L_ERR "%s: Missing link-local next hop address, skipping corresponding routes", p->p.name);
-			  w = w_stored;
-			  remains = rem_stored;
-			  bgp_flush_prefixes(p, buck);
-			  rem_node(&buck->send_node);
-			  bgp_free_bucket(p, buck);
-			  continue;
-			case MLL_IGNORE:
-			  break;
-			}
-		    }
-		}
-	    }
-
-	  tstart = tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_REACH_NLRI, remains-8);
-	  *tmp++ = 0; /* high order byte of AFI */
+	if (size < 0)
+	  {
+	    log(L_ERR "%s: Attribute list too long, skipping corresponding routes", p->p.name);
+	    bgp_flush_prefixes(p, buck);
+	    rem_node(&buck->send_node);
+	    bgp_free_bucket(p, buck);
+	    continue;
+	  }
+	w += size;
+	remains -= size;
 
 #ifdef IPV6
-	  *tmp++ = BGP_AF_IPV6; /* AFI */
-	  *tmp++ = 1;           /* SAFI */
+	/* Process NEXT_HOP. We have two addresses here in NEXT_HOP
+	   eattr. Really.  Unless NEXT_HOP was modified by filter */
+	nh = ea_find(buck->eattrs, EA_CODE(EAP_BGP, BA_NEXT_HOP));
+	ASSERT(nh);
+	second = (nh->u.ptr->length == NEXT_HOP_LENGTH);
+	ipp = (ip_addr *) nh->u.ptr->data;
+	ip = ipp[0];
+	ip_ll = IPA_NONE;
 
+	if (ipa_equal(ip, p->source_addr))
+	  ip_ll = p->local_link;
+	else
+	  {
+	    /* If we send a route with 'third party' next hop destinated 
+	     * in the same interface, we should also send a link local 
+	     * next hop address. We use the received one (stored in the 
+	     * other part of BA_NEXT_HOP eattr). If we didn't received
+	     * it (for example it is a static route), we can't use
+	     * 'third party' next hop and we have to use local IP address
+	     * as next hop. Sending original next hop address without
+	     * link local address seems to be a natural way to solve that
+	     * problem, but it is contrary to RFC 2545 and Quagga does not
+	     * accept such routes.
+	     *
+	     * There are two cases, either we have global IP, or
+	     * IPA_NONE if the neighbor is link-local. For IPA_NONE,
+	     * we suppose it is on the same iface, see bgp_update_attrs().
+	     */
 
-	  if (ipa_is_link_local(ip))
-	    ip = IPA_NONE;
-
-	  if (ipa_nonzero(ip_ll))
-	    {
-	      *tmp++ = 32;
-	      ipa_hton(ip);
-	      memcpy(tmp, &ip, 16);
-	      ipa_hton(ip_ll);
-	      memcpy(tmp+16, &ip_ll, 16);
-	      tmp += 32;
-	    }
-	  else
-	    {
-	      *tmp++ = 16;
-	      ipa_hton(ip);
-	      memcpy(tmp, &ip, 16);
-	      tmp += 16;
-	    }
-#else
-	  *tmp++ = BGP_AF_IPV4; /* AFI */
-	  *tmp++ = 1;           /* SAFI */
-	  *tmp++ = 4;           /* next hop length */
-	  ipa_hton(ip); /* next hop */
-	  memcpy(tmp, &ip, 4);
-	  tmp += 4;
-#endif
-	  
-	  *tmp++ = 0;	       /* reserved byte (No SNPA information) */
-	  /*	  byte *nlri = tmp;*/
-	  tmp += bgp_encode_prefixes(p, tmp, buck, remains - (8+3+32+1));
-	  ea->attrs[0].u.ptr->length = tmp - tstart;
-
-	  size = bgp_encode_attrs(p, w, ea, remains, &nlri_prefix);
-
-	  ASSERT(size >= 0);
-	  w += size;
-	  remains -= size;
-
-#ifdef CONFIG_BGPSEC
-	  if (p->conn->peer_bgpsec_support)  {
-	    int bgpsec_len = encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, &nlri_prefix);
-
-	    if ( bgpsec_len < 0 ) {
-	      log(L_ERR "encode_bgpsec_attrs: bgpsec signing failed");
-	      return NULL;
-	    }
-	    w += bgpsec_len;
-	    remains -= bgpsec_len;
+	    if (ipa_zero(ip) || same_iface(p, &ip))
+	      {
+		if (second && ipa_nonzero(ipp[1]))
+		  ip_ll = ipp[1];
+		else
+		  {
+		    switch (p->cf->missing_lladdr)
+		      {
+		      case MLL_SELF:
+			ip = p->source_addr;
+			ip_ll = p->local_link;
+			break;
+		      case MLL_DROP:
+			log(L_ERR "%s: Missing link-local next hop address, skipping corresponding routes", p->p.name);
+			w = w_stored;
+			remains = rem_stored;
+			bgp_flush_prefixes(p, buck);
+			rem_node(&buck->send_node);
+			bgp_free_bucket(p, buck);
+			continue;
+		      case MLL_IGNORE:
+			break;
+		      }
+		  }
+	      }
 	  }
 #endif
+	
+	/* Create MP_REACH_NLRI attr */ 
+	tstart = tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_REACH_NLRI, remains-8);
+	*tmp++ = 0; /* high order byte of AFI */
 
-	  break;
-	}  /* end while */
-    }
+#ifdef IPV6
+	*tmp++ = BGP_AF_IPV6; /* AFI */
+	*tmp++ = 1;           /* SAFI */
 
-  size = w - (buf+4);
-  put_u16(buf+2, size);
+
+	if (ipa_is_link_local(ip))
+	  ip = IPA_NONE;
+
+	if (ipa_nonzero(ip_ll))
+	  {
+	    *tmp++ = 32;
+	    ipa_hton(ip);
+	    memcpy(tmp, &ip, 16);
+	    ipa_hton(ip_ll);
+	    memcpy(tmp+16, &ip_ll, 16);
+	    tmp += 32;
+	  }
+	else
+	  {
+	    *tmp++ = 16;
+	    ipa_hton(ip);
+	    memcpy(tmp, &ip, 16);
+	    tmp += 16;
+	  }
+#else
+	*tmp++ = BGP_AF_IPV4; /* AFI */
+	*tmp++ = 1;           /* SAFI */
+	*tmp++ = 4;           /* next hop length */
+	ipa_hton(ip); /* next hop */
+	memcpy(tmp, &ip, 4);
+	tmp += 4;
+#endif
+	  
+	*tmp++ = 0;	       /* reserved byte (No SNPA information) */
+	/* Put prefixes in MP_REACH_NLRI attr */
+#if !defined(IPV6)
+	tmp += bgp_encode_prefix_noDequeue(p, tmp, buck, remains - (8+3+32+1));
+#else
+	tmp += bgp_encode_prefixees(p, tmp, buck, remains - (8+3+32+1));
+#endif
+	ea->attrs[0].u.ptr->length = tmp - tstart;
+
+	/* Add MP_REACH_NLRI to Update */
+	size = bgp_encode_attrs(p, w, ea, remains, &nlri_prefix);
+
+	ASSERT(size >= 0);
+	w += size;
+	remains -= size;
+
+#ifdef CONFIG_BGPSEC
+	/* Add BGPSEC attr to update */
+	if (p->conn->peer_bgpsec_support)  {
+	  int bgpsec_len = encode_bgpsec_attr(p->conn, buck->eattrs, w, remains, &nlri_prefix);
+
+	  if ( bgpsec_len < 0 ) {
+	    log(L_ERR "encode_bgpsec_attrs: bgpsec signing failed");
+	    return NULL;
+	  }
+	  w += bgpsec_len;
+	  remains -= bgpsec_len;
+	}
+#endif
+
+# if !defined(IPV6)
+	/* For IPv4, add backwards compatible NLRI data as well as
+	   MP_REACH attr above */
+	havePrefix = 1;
+#endif
+	  
+	break;
+      }  /* end while */
+  } /* if enough space is left */
+
+  /* put attribut length at end of withdraw */
+  size = w - (buf + 4 + wd_size);
+  put_u16((buf + 2 + wd_size), size);
   lp_flush(bgp_linpool);
+
+#if !defined(IPV6)
+  if ( havePrefix ) {
+    /* For IPv4, if we found an Update prefix, include the backwards
+       compatible NLRI data. (should match MP_REACH prefix) */
+    w += bgp_encode_prefixes(p, w, buck, remains);
+  }
+#endif
+
   if (size)
     {
       BGP_TRACE_RL(&rl_snd_update, D_PACKETS, "Sending UPDATE");
@@ -690,6 +760,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
     return NULL;
 }
 
+  
 static byte *
 bgp_create_end_mark(struct bgp_conn *conn, byte *buf)
 {
@@ -1287,6 +1358,9 @@ static inline int
 bgp_set_next_hop(struct bgp_proto *p, rta *a)
 {
   struct eattr *nh = ea_find(a->eattrs, EA_CODE(EAP_BGP, BA_NEXT_HOP));
+  if ( !nh )
+    return 0;
+
   ip_addr *nexthop = (ip_addr *) nh->u.ptr->data;
 
 #ifdef IPV6
@@ -1404,6 +1478,7 @@ bgp_do_rx_update(struct bgp_conn *conn,
 
 #else			/* IPv6 || BGPSEC version */
 
+
 /* DO_NLRI definition moved to bgp.h, so that it can also be
  * used by attrs.c : decode_bgpsec_attr() */
 /* 
@@ -1423,6 +1498,7 @@ bgp_do_rx_update(struct bgp_conn *conn,
     af = 0;						\
   if (af == BGP_AF_IPV6)
 */
+
 
 static void
 bgp_attach_next_hop(rta *a0, byte *x)
@@ -1460,14 +1536,35 @@ bgp_do_rx_update(struct bgp_conn *conn,
   int pxlen, err = 0;
   u32 path_id = 0;
   u32 last_id = 0;
-
+  
   p->mp_reach_len = 0;
   p->mp_unreach_len = 0;
+  /* Note: BGPsec requires MP_REACH, and bgp_decode_attrs will check
+     that requirement.  The code below allows updates without the
+     BGPsec attribute to use MP_REACH or not (i.e. backwards compatibility) */
   a0 = bgp_decode_attrs(conn, attrs, attr_len, bgp_linpool, nlri, nlri_len);
 
   if (conn->state != BS_ESTABLISHED)	/* fatal error during decoding */
     return;
 
+#if !defined(IPV6)
+  /* Can be with or without MP_UNREACH */
+  /* if MP_UNREACH does not exist, check for old End-of-RIB marker */
+  if ( 0 == p->mp_unreach_start || 0 == p->mp_unreach_len )  {
+      /* Check for End-of-RIB marker */
+    if (!withdrawn_len && !attr_len && !nlri_len)  {
+      bgp_rx_end_mark(p);
+      return;
+    }
+  }
+  /* Check mp_unreach for End-of-RIB marker */
+  else if ( (attr_len < 8) && !withdrawn_len && !nlri_len && !p->mp_reach_len &&
+	    (p->mp_unreach_len == 3) )  {
+    bgp_rx_end_mark(p);
+    return;
+  }
+#else 
+  /* IPv6 only */
   /* Check for End-of-RIB marker */
   if ((attr_len < 8) && !withdrawn_len && !nlri_len && !p->mp_reach_len &&
       (p->mp_unreach_len == 3) && (get_u16(p->mp_unreach_start) == BGP_AF_IPV6))
@@ -1475,8 +1572,24 @@ bgp_do_rx_update(struct bgp_conn *conn,
       bgp_rx_end_mark(p);
       return;
     }
+#endif
 
-  DO_NLRI(mp_unreach)
+#if !defined(IPV6)
+  /* Can be with or without MP_UNREACH */
+  /* if MP_UNREACH does not exist, check for old withdraw routes */
+  if ( 0 == p->mp_unreach_start || 0 == p->mp_unreach_len )  {
+    /* Withdraw routes */
+    while (withdrawn_len) {
+      DECODE_PREFIX(withdrawn, withdrawn_len);
+      DBG("Withdraw %I/%d\n", prefix, pxlen);
+
+      bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
+    }
+  }
+  /* else get withdraw routes from mp_unreach */
+  else {
+#else
+    DO_NLRI(mp_unreach)
     {
       while (len)
 	{
@@ -1485,37 +1598,70 @@ bgp_do_rx_update(struct bgp_conn *conn,
 	  bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
 	}
     }
+#endif
+#if !defined(IPV6)
+  }
+#endif
 
-  DO_NLRI(mp_reach)
-    {
-      /* Create fake NEXT_HOP attribute, check IP addr length */
-      if (len < 1 || (*x != 4 && *x != 16 && *x != 32) || len < *x + 2)
-	{ err = BGP_UPD_ERROR_OPT_ATTR; goto done; }
 
-      if (a0)
-	bgp_attach_next_hop(a0, x);
+#if !defined(IPV6)
+  /* Can be with or without MP_REACH */
+  /* if MP_REACH does NOT exist, use nlri */
+  if ( 0 == p->mp_reach_start || 0 == p->mp_reach_len )  {
+    if ( nlri_len <= 0 ) { goto done; }
+    x   = nlri;
+    len = nlri_len;
 
-      /* Also ignore one reserved byte */
-      len -= *x + 2;
-      x += *x + 2;
+    log(L_DEBUG "bgp_do_rx_update: using NLRI: a0: %d, nlri_len: %d",
+	a0, nlri_len);
 
-      if (a0 && ! bgp_set_next_hop(p, a0))
-	a0 = NULL;
+    if (a0 && nlri_len && !bgp_set_next_hop(p, a0))
+      a0 = NULL;
+  }
+  /* MP_REACH exists */
+  else {
+#endif
+    DO_NLRI(mp_reach)
+      {
+	/* Create fake NEXT_HOP attribute, check IP addr length */
+	if (len < 1 || (*x != 4 && *x != 16 && *x != 32) || len < *x + 2)
+	  { err = BGP_UPD_ERROR_OPT_ATTR; goto done; }
 
-      last_id = 0;
-      src = p->p.main_source;
+	/* Also ignore one reserved byte */
+	len -= *x + 2;
+	x   += *x + 2;
+	log(L_DEBUG "bgp_do_rx_update: using MP_REACH: a0: %d, nlri_len: %d",
+	    a0, len);
 
-      while (len)
-	{
-	  DECODE_PREFIX(x, len);
-	  DBG("Add %I/%d\n", prefix, pxlen);
+#ifdef IPV6
+	if (a0)
+	  bgp_attach_next_hop(a0, x);
+#endif
+      }
 
-	  if (a0)
-	    bgp_rte_update(p, prefix, pxlen, path_id, &last_id, &src, a0, &a);
-	  else /* Forced withdraw as a result of soft error */
-	    bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
-	}
+    if (a0 && ! bgp_set_next_hop(p, a0))
+      a0 = NULL;
+#if !defined(IPV6)
+  }
+#endif
+
+  last_id = 0;
+  src = p->p.main_source;
+
+  while (len)  {
+    DECODE_PREFIX(x, len);
+
+    if (a0)  {
+      log(L_DEBUG "bgp_do_rx_update: Adding: %I/%d", prefix, pxlen);
+      bgp_rte_update(p, prefix, pxlen, path_id, &last_id, &src, a0, &a);
     }
+    /* Forced withdraw as a result of soft error */
+    else {
+      log(L_DEBUG "bgp_do_rx_update: Withdrawing: %I/%d", prefix, pxlen);
+      bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
+    }
+  }
+
     
  done:
   if (a)
