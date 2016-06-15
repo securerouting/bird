@@ -326,29 +326,24 @@ static inline ip6_addr ip6_ntoh(ip6_addr a)
 
 #define MPLS_MAX_LABEL_STACK 8
 static inline int
-mpls_ntoh(const char *buf, int len, u32 *stack)
+mpls_get(const char *buf, int buflen, u32 *stack)
 {
-  for (int i=0; i<len; i++)
+  for (int i=0; (i<MPLS_MAX_LABEL_STACK) && (i*4+3 < buflen); i++)
   {
-    stack[i] = (buf[i*4 + 0] << 12) | (buf[i*4 + 1] << 4) | (buf[i*4 + 2] >> 4);
-    if (buf[i*4 + 2] & 0x1)
+    u32 s = get_u32(buf + i*4);
+    stack[i] = s >> 12;
+    if (s & 0x100)
       return i+1;
   }
   return -1;
 }
 
 static inline int
-mpls_hton(char *buf, int len, u32 *stack)
+mpls_put(char *buf, int len, u32 *stack)
 {
   for (int i=0; i<len; i++)
-  {
-    buf[i*4 + 0] = stack[i] >> 12;
-    buf[i*4 + 1] = stack[i] >> 4;
-    buf[i*4 + 2] = stack[i] << 4;
-    buf[i*4 + 3] = 0;
-  }
+    put_u32(buf + i*4, stack[i] << 12 | (i+1 == len ? 0x100 : 0));
 
-  buf[len*4 - 2] |= 0x1;
   return len*4;
 }
 

@@ -391,14 +391,7 @@ static inline int rta_get_mpls(struct rtattr *a, u32 *stack)
   if (RTA_PAYLOAD(a) % 4)
     log(L_WARN "KRT: Strange length of received MPLS stack: %u", RTA_PAYLOAD(a));
 
-  for (int i = 0; (i < MPLS_MAX_LABEL_STACK) && (i*4 + 3 < RTA_PAYLOAD(a)); i++) {
-    stack[i] = (((u8 *)RTA_DATA(a))[i*4 + 0] << 12)
-	     | (((u8 *)RTA_DATA(a))[i*4 + 1] <<  4)
-	     | (((u8 *)RTA_DATA(a))[i*4 + 2] >>  4);
-    if (!!(((u8 *)RTA_DATA(a))[i*4 + 2] & 1))
-      return i+1;
-  }
-  return -1;
+  return mpls_get(RTA_DATA(a), RTA_PAYLOAD(a) & ~0x3, stack);
 }
 
 struct rtattr *
@@ -472,7 +465,7 @@ static inline void
 nl_add_attr_mpls(struct nlmsghdr *h, uint bufsize, int code, int len, u32 *stack)
 {
   char buf[len*4];
-  mpls_hton(buf, len, stack);
+  mpls_put(buf, len, stack);
   nl_add_attr(h, bufsize, code, buf, len*4);
 }
 
@@ -1053,7 +1046,10 @@ nl_send_route(struct krt_proto *p, rte *e, struct ea_list *eattrs, int new)
   r->r.rtm_protocol = RTPROT_BIRD;
   r->r.rtm_scope = RT_SCOPE_UNIVERSE;
   if (p->af == AF_MPLS)
-    nl_add_attr_mpls(&r->h, rsize, RTA_DST, 1, net_mpls(net->n.addr));
+  {
+    u32 label = net_mpls(net->n.addr);
+    nl_add_attr_mpls(&r->h, rsize, RTA_DST, 1, &label);
+  }
   else
     nl_add_attr_ipa(&r->h, rsize, RTA_DST, net_prefix(net->n.addr));
 
