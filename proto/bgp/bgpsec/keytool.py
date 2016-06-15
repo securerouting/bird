@@ -58,7 +58,14 @@ class OpenSSLPipeline(object):
     return output
 # class OpenSSLPipeline(object):
 
+def check_files_dir(args, fn):
+  dn = os.path.dirname(fn)
+  if not os.path.isdir(dn):
+    if args.verbose:
+      print "Creating directory: ", dn
+    os.makedirs(dn)
 
+    
 def public_filename(args, asn, skihex):
   """
   Figure out what the filename for a key should be, and create the
@@ -71,11 +78,8 @@ def public_filename(args, asn, skihex):
       break
   else:
     sys.exit("Too many SKI collisions for ASN %s SKI %s" % (asn, skihex))
-  dn = os.path.dirname(fn)
-  if not os.path.isdir(dn):
-    if args.verbose:
-      print "Creating directory", dn
-    os.makedirs(dn)
+  
+  check_files_dir(args, fn)
   return fn
 # def public_filename(args, asn, skihex):
 
@@ -104,6 +108,8 @@ def generate(args):
   skihex = skihex.split()[-1].upper()
   if args.printski:
     print skihex
+
+  # generate public key
   fn = public_filename(args, args.asns[0], skihex)
   if args.verbose:
     print "Writing", fn
@@ -114,7 +120,10 @@ def generate(args):
       print "Linking", ln
     os.link(fn, ln)
   os.umask(077)
+
+  # generate private key
   fn = "%s/%s.%s.key" % (args.private_key_dir, args.asns[0], skihex)
+  check_files_dir(args, fn)
   if args.verbose:
     print "Writing", fn
   openssl(("pkey", "-outform", "DER", "-out", fn), input = pemkey)
