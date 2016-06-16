@@ -1341,11 +1341,17 @@ bgp_check_config(struct bgp_config *c)
     cf_error("BGP with secondary option requires sorted table");
 
 #ifdef CONFIG_BGPSEC
-  /* create a binary SKI from config */
+
   if ( c->enable_bgpsec ) {
+    /* AS4 support required for BGPsec */
+    if ( ! c->enable_as4 ) {
+      cf_error("BGPsec: AS4 supported required for BGPsec");
+    }
+
+    /* create a binary SKI from config */
     if ( strnlen(c->bgpsec_ski, (2 * BGPSEC_SKI_LENGTH))
 	 != (BGPSEC_SKI_LENGTH * 2) ) {
-      cf_error("BGPSEC: bad length of the configured SKI value");
+      cf_error("BGPsec: bad length of the configured SKI value");
     }
 
     if ( BGPSEC_SKI_LENGTH !=
@@ -1370,23 +1376,25 @@ bgp_check_config(struct bgp_config *c)
 		(unsigned char *)(c->bgpsec_bski+17),
 		(unsigned char *)(c->bgpsec_bski+18),
 		(unsigned char *)(c->bgpsec_bski+19)) ) {
-      cf_error("BGPSEC: unable to parse the configured SKI value");
+      cf_error("BGPsec: unable to parse the configured SKI value");
     }
-    
+
+    /* check key paths */
     if (c->bgpsec_key_repo_path) {
       int krp = strnlen(c->bgpsec_key_repo_path, 10);
       if ( 0 < krp && krp < 2 ) {
-	log(L_WARN "BPGPSEC: unable to parse bpgsec_key_repo_path: %d", krp);
-	cf_error("BGPSEC:: unable to parse bpgsec_key_repo_path");
+	log(L_WARN "BPGPsec: unable to parse bpgsec_key_repo_path: %d", krp);
+	cf_error("BGPsec:: unable to parse bpgsec_key_repo_path");
       }
     }
     if (c->bgpsec_priv_key_path) {
       int pkp = strnlen(c->bgpsec_priv_key_path, 10);
       if ( 0 < pkp && pkp < 2 ) {
-	log(L_WARN "BPGPSEC: unable to parse bpgsec_key_repo_path: %d", pkp);
-	cf_error("BGPSEC:: unable to parse bpgsec_key_repo_path");
+	log(L_WARN "BPGsec: unable to parse bpgsec_key_repo_path: %d", pkp);
+	cf_error("BGPsec:: unable to parse bpgsec_key_repo_path");
       }
     }
+    /* Show Configured Origination Addresses */
     if (c->bgpsec_orig_px_len > 0) {
       int i;
       for(i=0; i < c->bgpsec_orig_px_len; i++) {

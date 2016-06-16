@@ -317,10 +317,11 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
 
 #ifdef CONFIG_BGPSEC
   /* xxx */
-  BGP_TRACE(D_PACKETS, "Add BGPSec capability? \'%d\', v%d, as4:%d",
-            p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
-  if (p->cf->enable_bgpsec)
+  if (p->cf->enable_bgpsec) {
     cap = bgp_put_cap_bgpsec(conn, cap);
+    BGP_TRACE(D_PACKETS, "Added BGPSec capability: v%d",
+	      p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
+  }
 #endif
   
   if (p->cf->enable_refresh)
