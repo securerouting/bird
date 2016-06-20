@@ -48,21 +48,29 @@ static_proto:
 stat_nexthop_via: VIA
 {
   if (last_srt)
+  {
     last_srt = (last_srt->mp_next = cfg_allocz(sizeof(struct static_route)));
+    last_srt->net = this_srt->net;
+  }
   else
+  {
     last_srt = this_srt;
+    rem_node(&this_srt->n);
+  }
+
+  last_srt->mp_head = this_srt;
   last_srt->dest = RTD_UNICAST;
 };
 
 stat_nexthop_ident:
     stat_nexthop_via ipa ipa_scope {
       last_srt->via = $2;
-      last_srt->via_if = $3;
+      last_srt->iface = $3;
+      add_tail(&STATIC_CFG->neigh_routes, &last_srt->n);
     }
   | stat_nexthop_via TEXT {
       last_srt->via = IPA_NONE;
       last_srt->if_name = $2;
-      rem_node(&last_srt->n);
       add_tail(&STATIC_CFG->iface_routes, &last_srt->n);
     }
   | stat_nexthop_ident MPLS label_stack {

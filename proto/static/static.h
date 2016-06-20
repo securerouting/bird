@@ -15,7 +15,8 @@
 struct static_config {
   struct proto_config c;
   list iface_routes;		/* Routes to search on interface events */
-  list other_routes;		/* Routes hooked to neighbor cache and reject routes */
+  list neigh_routes;		/* Routes to search on neighbor events */
+  list other_routes;		/* Non-nexthop routes */
   int check_link;			/* Whether iface link state is used */
   struct rtable_config *igp_table;	/* Table used for recursive next hop lookups */
 };
@@ -29,10 +30,11 @@ struct static_route {
   net_addr *net;			/* Network we route */
   int dest;				/* Destination type (RTD_*) */
   ip_addr via;				/* Destination router */
-  struct iface *via_if;			/* Destination iface, for link-local vias */
+  struct iface *iface;			/* Destination iface, for link-local vias or device routes */
   struct neighbor *neigh;
-  byte *if_name;			/* Name for RTD_DEVICE routes */
+  byte *if_name;			/* Name for device routes */
   struct static_route *mp_next;		/* Nexthops for multipath routes */
+  struct static_route *mp_head;		/* First nexthop of this route */
   struct f_inst *cmds;			/* List of commands for setting attributes */
   u32 state;				/* Current state: STS_* */
   int weight;				/* Multipath next hop weight */
@@ -43,9 +45,8 @@ struct static_route {
 };
 
 #define STS_INSTALLED		0x1
-#define STS_INSTALLED_ANY	0x2
-#define STS_WANT		0x4
-#define STS_FORCE		0x8
+#define STS_WANT		0x2
+#define STS_FORCE		0x4
 
 /* Dummy nodes (parts of multipath route) abuses masklen field for weight
    and if_name field for a ptr to the master (RTD_MULTIPATH) node. */
