@@ -143,13 +143,14 @@ bgp_create_notification(struct bgp_conn *conn, byte *buf)
 }
 
 #ifdef IPV6
+/* RFC 4760 */
 static byte *
 bgp_put_cap_ipv6(struct bgp_proto *p UNUSED, byte *buf)
 {
   *buf++ = 1;		/* Capability 1: Multiprotocol extensions */
   *buf++ = 4;		/* Capability data length */
-  *buf++ = 0;		/* We support AF IPv6 */
-  *buf++ = BGP_AF_IPV6;
+  *buf++ = 0;		/* High order byte of AFI  */
+  *buf++ = BGP_AF_IPV6; /* Low  order byte of AFI  */
   *buf++ = 0;		/* RFU */
   *buf++ = 1;		/* and SAFI 1 */
   return buf;
@@ -157,13 +158,14 @@ bgp_put_cap_ipv6(struct bgp_proto *p UNUSED, byte *buf)
 
 #else
 
+/* RFC 4760 */
 static byte *
 bgp_put_cap_ipv4(struct bgp_proto *p UNUSED, byte *buf)
 {
   *buf++ = 1;		/* Capability 1: Multiprotocol extensions */
   *buf++ = 4;		/* Capability data length */
-  *buf++ = 0;		/* We support AF IPv4 */
-  *buf++ = BGP_AF_IPV4;
+  *buf++ = 0;		/* High order byte of AFI */
+  *buf++ = BGP_AF_IPV4; /* Low  order byte of AFI */
   *buf++ = 0;		/* RFU */
   *buf++ = 1;		/* and SAFI 1 */
   return buf;
@@ -216,11 +218,11 @@ bgp_put_cap_as4(struct bgp_proto *p, byte *buf)
 }
 
 #ifdef CONFIG_BGPSEC
-/* Note: this adds 2 capabilities to bgp capabilitiies.
+/* Note: this adds 2 capabilities to bgp capabilities.
  * One indicates this router can send BGPSEC messages and
- * the other indicating it can recieve BGPSEC messages 
+ * the other indicating it can receive BGPSEC messages 
  *
- *  Currently, this code doesn't have differentiate in its
+ *  Currently, this code doesn't differentiate in its
  *  configuration. It either supports sending/receiving BGPSEC
  *  messages or doesn't support BGPSEC */
 static byte *
@@ -292,6 +294,7 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
   /* Skipped 3 B for length field and Capabilities parameter header */
   cap = buf + 12;
 
+/* RFC 4760 */
 #ifndef IPV6
   if (p->cf->advertise_ipv4)
     cap = bgp_put_cap_ipv4(p, cap);
@@ -352,7 +355,7 @@ bgp_encode_prefixes(struct bgp_proto *p, byte *w, struct bgp_bucket *buck, unsig
   while (!EMPTY_LIST(buck->prefixes) && (remains >= (5+sizeof(ip_addr))))
     {
       struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
-      log(L_DEBUG "\tEncode Prefixes: Dequeued route %I/%d", px->n.prefix, px->n.pxlen);
+      log(L_DEBUG "    Encode Prefix: Dequeued route %I/%d", px->n.prefix, px->n.pxlen);
 
       if (p->add_path_tx)
 	{
@@ -385,7 +388,7 @@ bgp_encode_prefix_noDequeue(struct bgp_proto *p, byte *w, struct bgp_bucket *buc
 
   if (!EMPTY_LIST(buck->prefixes) && (remains >= (5+sizeof(ip_addr)))) {
     struct bgp_prefix *px = SKIP_BACK(struct bgp_prefix, bucket_node, HEAD(buck->prefixes));
-    log(L_DEBUG "\tEncode Prefix: %I/%d", px->n.prefix, px->n.pxlen);
+    log(L_DEBUG "    Encode Prefix: %I/%d", px->n.prefix, px->n.pxlen);
 
     if (p->add_path_tx)
       {
@@ -973,7 +976,7 @@ bgp_tx(sock *sk)
     ;
 }
 
-/* Capatibility negotiation as per RFC 2842 */
+/* Capability negotiation as per RFC 2842 */
 
 void
 bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
@@ -994,13 +997,27 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 
       switch (opt[0])
 	{
+	case 1:	/* Multiprotocol */
+	  if ( BGP_AF_IPV4 == opt[3] ) {
+	    log(L_DEBUG "parse_capability: Multiprotocol Extension AFI: IPv4");
+	  }
+	  else if ( BGP_AF_IPV6 == opt[3] ) {
+	    log(L_DEBUG "parse_capability: Multiprotocol Extension AFI: IPv6");
+	  }
+	  else {
+	    log(L_WARN "parse_capability: Multiprotocol Extension AFI: UNKNOWN");
+	  }
+	  break;
+
 	case 2:	/* Route refresh capability, RFC 2918 */
+	  log(L_DEBUG "parse_capability: Route refresh");
 	  if (cl != 0)
 	    goto err;
 	  conn->peer_refresh_support = 1;
 	  break;
 
 	case 64: /* Graceful restart capability, RFC 4724 */
+	  log(L_DEBUG "parse_capability: Graceful restart");
 	  if (cl % 4 != 2)
 	    goto err;
 	  conn->peer_gr_aware = 1;
@@ -1017,6 +1034,7 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  break;
 
 	case 65: /* AS4 capability, RFC 4893 */
+	  log(L_DEBUG "parse_capability: AS4");
 	  if (cl != 4)
 	    goto err;
 	  conn->peer_as4_support = 1;
@@ -1025,46 +1043,47 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  break;
 
 #ifdef CONFIG_BGPSEC
-	case BGPSEC_CAPABILITY: /* BGPSEC_CAPABILITY value currently arbitrary */
+	  /* BGPSEC_CAPABILITY, draft, value currently arbitrary xxx */
+	case BGPSEC_CAPABILITY:
 	  if (cl != 3)          /* data length must be 3 */
 	    goto err;
 
 	  if ( ! conn->bgp->cf->enable_bgpsec ) {
-	    BGP_TRACE(D_PACKETS, "Error: bgp_parse_capabilities: BGPSEC NOT enabled locally");
+	    log(L_WARN "Error: bgp_parse_capabilities: BGPSEC NOT enabled locally");
 	    goto err;
 	  }
 
 	  if ( BGPSEC_VERSION == (opt[2] & 0xF0) ) {
-	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
+	    log(L_DEBUG "bgp_parse_capabilities: sender BGPSEC_VERSION matches : %d", (opt[2] & 0x0F));
 	    conn->peer_bgpsec_support = 1;
 	  }
 	  else {
-	    BGP_TRACE(D_PACKETS, "Error: bgp_parse_capabilities: BGPSEC_VERSION does not match, loc : %d, rem : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
+	    log(L_WARN "Error: bgp_parse_capabilities: BGPSEC_VERSION does not match, local : %d, remote : $d", BGPSEC_VERSION, (opt[2] & 0x0F));
 	    goto err;
 	  }
 
 	  if (opt[2] & 0x08) { 
-	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
+	    log(L_DEBUG "bgp_parse_capabilities: sender can send BGPSEC messages : %d", opt[2]);
 	    conn->bgp->bgpsec_send = 1;
 	  }
 
 	  if (0 == (opt[2] & 0x08)) { 
-	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
+	    log(L_DEBUG "bgp_parse_capabilities: sender can receive BGPSEC messages : %d", opt[2]);
 	    conn->bgp->bgpsec_receive = 1;
 	  }
 
 	  afi = get_u16(opt + 3);
 
 	  if (BGP_AF_IPV4 == afi) {
-	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender using bgpsec IPV4 Address Family : %d", afi);
+	    log(L_DEBUG "bgp_parse_capabilities: sender bgpsec AFI: IPV4 : %d", afi);
 	    conn->bgp->bgpsec_ipv4 = 1;
 	  }
 	  else if (BGP_AF_IPV6 == afi) {
-	    BGP_TRACE(D_PACKETS, "bgp_parse_capabilities: sender using IPV6 Address Family : %d", afi);
+	    log(L_DEBUG "bgp_parse_capabilities: sender bgpsec AFI: IPV6 : %d", afi);
 	    conn->bgp->bgpsec_ipv6 = 1;
 	  }
 	  else {
-	    BGP_TRACE(D_PACKETS, "Error: bgp_parse_capabilities: unknown AFI: %d", afi);
+	    log(L_WARN "Error: bgp_parse_capabilities: sender bgpsec AFI: UNKNOWN : %d", afi);
 	    goto err;
 	  }
 
@@ -1072,6 +1091,7 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 #endif
 	  
 	case 69: /* ADD-PATH capability, draft */
+	  log(L_DEBUG "parse_capability: ADD-PATH");
 	  if (cl % 4)
 	    goto err;
 	  for (i = 0; i < cl; i += 4)
@@ -1082,11 +1102,14 @@ bgp_parse_capabilities(struct bgp_conn *conn, byte *opt, int len)
 	  break;
 
 	case 70: /* Enhanced route refresh capability, RFC 7313 */
+	  log(L_DEBUG "parse_capability: Enhanced route refresh");
 	  if (cl != 0)
 	    goto err;
 	  conn->peer_enhanced_refresh_support = 1;
 	  break;
 
+	default:
+	  log(L_WARN "parse_capability: UNKNOWN Capability: %d", opt[0]);
 	  /* We can safely ignore all other capabilities */
 	}
       len -= 2 + cl;

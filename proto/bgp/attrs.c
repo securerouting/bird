@@ -941,17 +941,17 @@ int bgpsec_is_origination(struct bgp_config *config, struct prefix *nlri_prefix)
 
 int is_bgpsec_route(struct bgp_config *config, ea_list *attrs, struct prefix *nlri_prefix) {
   if (NULL == nlri_prefix) {
-    log(L_TRACE "is_bgpsec_route:  Not BGPsec route: No NLRI");
+    log(L_TRACE "is_bgpsec_route: Not BGPsec route: No NLRI");
     return 0;
   }
   
   if (  ea_find(attrs, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE)) ||
 	bgpsec_is_origination(config, nlri_prefix) )  {
-    log(L_TRACE "is_bgpsec_route:  BGPsec route : %I", nlri_prefix->addr);
+    log(L_TRACE "is_bgpsec_route: BGPsec route : %I", nlri_prefix->addr);
     return 1;
   }
 
-  log(L_TRACE "is_bgpsec_route:  Not BGPsec route : %I", nlri_prefix->addr);
+  log(L_TRACE "is_bgpsec_route: Not BGPsec route : %I", nlri_prefix->addr);
   return 0;
 }
 
@@ -1013,7 +1013,7 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   }
   u8       *pathPtr = (u8 *)&(asPathAttr->u.ptr->data);
   int      numOfAS  = (asPathAttr->u.ptr->length - 2) / 4;
-  log(L_DEBUG "encode_bgpsec_attr: %d > %d : ASP length: %d",
+  log(L_DEBUG "encode_bgpsec_attr: %d > %d : AS PATH length: %d",
       conn->bgp->local_as, conn->bgp->remote_as, numOfAS);
 
   eattr *bgpSecAttr = ea_find(attr_list, EA_CODE(EAP_BGP, BA_BGPSEC_SIGNATURE));
@@ -1021,7 +1021,7 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   /* if this route does not have a BGPsec attribute and this is not
    * the origination, do not add a BGPsec attribute to this update */
   if ( (NULL == bgpSecAttr ) && (0 == isOrig) )  {
-    log(L_DEBUG "encode_bgpsec_attr: %d > %d : No extant BGPsec attribute, not origination, BGPsec attribute not added",
+    log(L_DEBUG "encode_bgpsec_attr: %d > %d : Not origination, no extant BGPsec attribute, BGPsec attribute not added",
 	conn->bgp->local_as, conn->bgp->remote_as, numOfAS);
     return 0;
   }
@@ -1303,7 +1303,7 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
 #endif
 
 #ifdef CONFIG_BGPSEC
-      log(L_DEBUG "bgp_encode_attrs: Attr %s, as4_session: %d", ba_code_to_string(code), p->as4_session);
+      log(L_DEBUG " bgp_encode_attrs: Attr %s", ba_code_to_string(code));
       
       /* Do not send internally used extended attribute.
        * Do not handle the BPGsec attribute here. */
@@ -1409,7 +1409,7 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
 	goto err_no_buffer;
 
       rv = bgp_encode_attr_hdr(w, flags, code, len);
-      log(L_TRACE "Adding attribute: %s", ba_code_to_string(code));
+      log(L_TRACE "  Adding to Upd: %s", ba_code_to_string(code));
       ADVANCE(w, remains, rv);
 
       switch (type)

@@ -1345,7 +1345,8 @@ bgp_check_config(struct bgp_config *c)
   if ( c->enable_bgpsec ) {
     /* AS4 support required for BGPsec */
     if ( ! c->enable_as4 ) {
-      cf_error("BGPsec: AS4 supported required for BGPsec");
+      c->enable_as4 = 1;
+      log(L_WARN "Warning: BGPsec: AS4 supported required for BGPsec, Enabling AS4");
     }
 
     /* create a binary SKI from config */

@@ -159,6 +159,9 @@ example bgp section from a BIRD configuration file supporting BGPSEC:
          enable as4;
 
 	 # enable bgpsec for this connection
+	 # This also enables the capabilities required for BGPsec:
+	 # RFC 4893 AS4, 4-byte ASs.
+	 # RFC 4760 MP_REACH_NLRI, the multi-protocol extension.
          bgpsec on;
 
 	 # bgpsec_origination_prefix sets the route prefixes that this
