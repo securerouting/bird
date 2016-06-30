@@ -547,8 +547,9 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
   int havePrefix = 0;
 #endif
 
-  put_u16(buf, 0);
-  w = buf+4;
+  log(L_DEBUG "%s: bgp_create_update", p->p.name);
+
+  w = buf+2;
 
   if ((buck = p->withdraw_bucket) && !EMPTY_LIST(buck->prefixes))
     {
@@ -558,8 +559,10 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
       wd_size = bgp_encode_prefix_noDequeue(p, w, buck, remains);
       w += wd_size;
       remains -= wd_size;
-      put_u16(buf, wd_size);
 #endif
+
+      w = w+2 ; /* skip path attrs length until it's known */
+
       /* create MP_UNREACH_NLRI attr */
       tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_UNREACH_NLRI, remains-8);
       *tmp++ = 0;
@@ -577,6 +580,11 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
       w += size;
       remains -= size;
      }
+  else {
+    w = w+2; /* skip path attrs length until it's known */
+  }
+  
+  put_u16(buf, wd_size);
 
   if (remains >= 3072)  {
     while ((buck = (struct bgp_bucket *) HEAD(p->bucket_queue))->send_node.next)
@@ -607,7 +615,6 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	w += size;
 	remains -= size;
 
-#ifdef IPV6
 	/* Process NEXT_HOP. We have two addresses here in NEXT_HOP
 	   eattr. Really.  Unless NEXT_HOP was modified by filter */
 	nh = ea_find(buck->eattrs, EA_CODE(EAP_BGP, BA_NEXT_HOP));
@@ -615,6 +622,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	second = (nh->u.ptr->length == NEXT_HOP_LENGTH);
 	ipp = (ip_addr *) nh->u.ptr->data;
 	ip = ipp[0];
+
+#ifdef IPV6
 	ip_ll = IPA_NONE;
 
 	if (ipa_equal(ip, p->source_addr))
@@ -697,6 +706,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	*tmp++ = BGP_AF_IPV4; /* AFI */
 	*tmp++ = 1;           /* SAFI */
 	*tmp++ = 4;           /* next hop length */
+	log(L_DEBUG "%s: create update: Adding Next Hop to MP_REACH: %I",
+	    p->p.name, ip);
 	ipa_hton(ip); /* next hop */
 	memcpy(tmp, &ip, 4);
 	tmp += 4;
@@ -1560,7 +1571,9 @@ bgp_do_rx_update(struct bgp_conn *conn,
   int pxlen, err = 0;
   u32 path_id = 0;
   u32 last_id = 0;
-  
+
+  log(L_DEBUG "%s: bgp_do_rx_update", p->p.name);
+
   p->mp_reach_len = 0;
   p->mp_unreach_len = 0;
   /* Note: BGPsec requires MP_REACH, and bgp_decode_attrs will check
@@ -1636,8 +1649,8 @@ bgp_do_rx_update(struct bgp_conn *conn,
     x   = nlri;
     len = nlri_len;
 
-    log(L_DEBUG "bgp_do_rx_update: using NLRI: a0: %d, nlri_len: %d",
-	a0, nlri_len);
+    log(L_DEBUG "%s: bgp_do_rx_update: using NLRI, nlri_len: %d",
+	p->p.name, nlri_len);
 
     if (a0 && nlri_len && !bgp_set_next_hop(p, a0))
       a0 = NULL;
@@ -1654,8 +1667,8 @@ bgp_do_rx_update(struct bgp_conn *conn,
 	/* Also ignore one reserved byte */
 	len -= *x + 2;
 	x   += *x + 2;
-	log(L_DEBUG "bgp_do_rx_update: using MP_REACH: a0: %d, nlri_len: %d",
-	    a0, len);
+	log(L_DEBUG "%s: bgp_do_rx_update: using MP_REACH: a0: %d, nlri_len: %d",
+	    p->p.name, a0, len);
 
 #ifdef IPV6
 	if (a0)
@@ -1676,12 +1689,14 @@ bgp_do_rx_update(struct bgp_conn *conn,
     DECODE_PREFIX(x, len);
 
     if (a0)  {
-      log(L_DEBUG "bgp_do_rx_update: Adding: %I/%d", prefix, pxlen);
+      log(L_DEBUG "%s: bgp_do_rx_update: Adding: %I/%d",
+	  p->p.name, prefix, pxlen);
       bgp_rte_update(p, prefix, pxlen, path_id, &last_id, &src, a0, &a);
     }
     /* Forced withdraw as a result of soft error */
     else {
-      log(L_DEBUG "bgp_do_rx_update: Withdrawing: %I/%d", prefix, pxlen);
+      log(L_DEBUG "%s: bgp_do_rx_update: Withdrawing: %I/%d",
+	  p->p.name, prefix, pxlen);
       bgp_rte_withdraw(p, prefix, pxlen, path_id, &last_id, &src);
     }
   }

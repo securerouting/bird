@@ -1303,7 +1303,8 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
 #endif
 
 #ifdef CONFIG_BGPSEC
-      log(L_DEBUG " bgp_encode_attrs: Attr %s", ba_code_to_string(code));
+      log(L_DEBUG "%s: bgp_encode_attrs: Attr %s",
+	  p->p.name, ba_code_to_string(code));
       
       /* Do not send internally used extended attribute.
        * Do not handle the BPGsec attribute here. */
@@ -1409,7 +1410,8 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
 	goto err_no_buffer;
 
       rv = bgp_encode_attr_hdr(w, flags, code, len);
-      log(L_TRACE "  Adding to Upd: %s", ba_code_to_string(code));
+      log(L_TRACE "%s:  Adding to Upd: %s",
+	  p->p.name, ba_code_to_string(code));
       ADVANCE(w, remains, rv);
 
       switch (type)
@@ -2778,12 +2780,14 @@ bgp_get_route_info(rte *e, byte *buf, ea_list *attrs)
   byte    *asp = ((struct adata *)p->u.ptr)->data;
   asp++; /* skip type */
   int i, asp_len = *asp++;
-  
+
+  buf += bsprintf(buf, "ASP:%d", asp_len);
+
   if (bsec) {
     if (1 == bsec->u.data)
-      buf += bsprintf(buf, "(BSEC VALID:");
+      buf += bsprintf(buf, " (BSEC VALID:");
     else 
-      buf += bsprintf(buf, "(BSEC INVALID:");
+      buf += bsprintf(buf, " (BSEC INVALID:");
 
     if ( asp_len < 40 ) { /* sanity check */
       for (i=1; i <= asp_len; i++) {
