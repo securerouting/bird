@@ -627,7 +627,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
 	return IGNORE;
       }
       else {
-	log(L_WARN "decode_bgpsec: %d < %d : bad signature at AS: %d, not BGPsec valid",
+	log(L_WARN "decode_bgpsec: %d < %d : bad signature at AS: %d, BGPsec Invalid",
 	    bgp->local_as, bgp->remote_as, signersAS);
 	valid = 0;
 	/* mark route as invalid */
@@ -664,7 +664,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
 	return IGNORE;
       }
       else {
-	log(L_WARN "decode_bgpsec: %d < %d : bad last signature AS: %d, not BGPsec valid",
+	log(L_WARN "decode_bgpsec: %d < %d : bad last signature AS: %d, BGPsec Invalid",
 	    bgp->local_as, bgp->remote_as, signersAS);
 	valid = 0;
 	/* mark route as invalid */
@@ -672,7 +672,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
       }
     }
     else {
-      log(L_DEBUG "decode_bgpsec: %d < %d : good last sig. AS: %d, marked BGPsec valid",
+      log(L_DEBUG "decode_bgpsec: %d < %d : good last sig. AS: %d, marked BGPsec Valid",
 	  bgp->local_as, bgp->remote_as, signersAS);
       /* mark route as valid */
       bgpsec_add_valid_attr(route_attr, 1, pool);
