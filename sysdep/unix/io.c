@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <sys/un.h>
+#include <poll.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -41,12 +42,12 @@
 #include "lib/sysio.h"
 
 /* Maximum number of calls of tx handler for one socket in one
- * select iteration. Should be small enough to not monopolize CPU by
+ * poll iteration. Should be small enough to not monopolize CPU by
  * one protocol instance.
  */
 #define MAX_STEPS 4
 
-/* Maximum number of calls of rx handler for all sockets in one select
+/* Maximum number of calls of rx handler for all sockets in one poll
    iteration. RX callbacks are often much more costly so we limit
    this to gen small latencies */
 #define MAX_RX_STEPS 4
@@ -447,6 +448,7 @@ tm_format_reltime(char *x, struct tm *tm, bird_clock_t delta)
 /**
  * tm_format_datetime - convert date and time to textual representation
  * @x: destination buffer of size %TM_DATETIME_BUFFER_SIZE
+ * @fmt_spec: specification of resulting textual representation of the time
  * @t: time
  *
  * This function formats the given relative time value @t to a textual
@@ -950,23 +952,32 @@ sk_set_min_ttl(sock *s, int ttl)
 /**
  * sk_set_md5_auth - add / remove MD5 security association for given socket
  * @s: socket
- * @a: IP address of the other side
+ * @local: IP address of local side
+ * @remote: IP address of remote side
  * @ifa: Interface for link-local IP address
- * @passwd: password used for MD5 authentication
+ * @passwd: Password used for MD5 authentication
+ * @setkey: Update also system SA/SP database
  *
- * In TCP MD5 handling code in kernel, there is a set of pairs (address,
- * password) used to choose password according to address of the other side.
- * This function is useful for listening socket, for active sockets it is enough
- * to set s->password field.
+ * In TCP MD5 handling code in kernel, there is a set of security associations
+ * used for choosing password and other authentication parameters according to
+ * the local and remote address. This function is useful for listening socket,
+ * for active sockets it may be enough to set s->password field.
  *
  * When called with passwd != NULL, the new pair is added,
  * When called with passwd == NULL, the existing pair is removed.
+ *
+ * Note that while in Linux, the MD5 SAs are specific to socket, in BSD they are
+ * stored in global SA/SP database (but the behavior also must be enabled on
+ * per-socket basis). In case of multiple sockets to the same neighbor, the
+ * socket-specific state must be configured for each socket while global state
+ * just once per src-dst pair. The @setkey argument controls whether the global
+ * state (SA/SP database) is also updated.
  *
  * Result: 0 for success, -1 for an error.
  */
 
 int
-sk_set_md5_auth(sock *s, ip_addr a, struct iface *ifa, char *passwd)
+sk_set_md5_auth(sock *s, ip_addr local, ip_addr remote, struct iface *ifa, char *passwd, int setkey)
 { DUMMY; }
 #endif
 
@@ -1022,7 +1033,6 @@ sk_log_error(sock *s, const char *p)
 static list sock_list;
 static struct birdsock *current_sock;
 static struct birdsock *stored_sock;
-static int sock_recalc_fdsets_p;
 
 static inline sock *
 sk_next(sock *s)
@@ -1078,7 +1088,6 @@ sk_free(resource *r)
     if (s == stored_sock)
       stored_sock = sk_next(s);
     rem_node(&s->n);
-    sock_recalc_fdsets_p = 1;
   }
 }
 
@@ -1203,7 +1212,7 @@ sk_setup(sock *s)
   if (s->iface)
   {
 #ifdef SO_BINDTODEVICE
-    struct ifreq ifr;
+    struct ifreq ifr = {};
     strcpy(ifr.ifr_name, s->iface->name);
     if (setsockopt(s->fd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) < 0)
       ERR("SO_BINDTODEVICE");
@@ -1276,7 +1285,6 @@ static void
 sk_insert(sock *s)
 {
   add_tail(&sock_list, &s->n);
-  sock_recalc_fdsets_p = 1;
 }
 
 static void
@@ -1439,7 +1447,7 @@ sk_open(sock *s)
   }
 
   if (s->password)
-    if (sk_set_md5_auth(s, s->daddr, s->iface, s->password) < 0)
+    if (sk_set_md5_auth(s, s->saddr, s->daddr, s->iface, s->password, 0) < 0)
       goto err;
 
   switch (s->type)
@@ -1681,19 +1689,12 @@ sk_maybe_write(sock *s)
 int
 sk_rx_ready(sock *s)
 {
-  fd_set rd, wr;
-  struct timeval timo;
   int rv;
-
-  FD_ZERO(&rd);
-  FD_ZERO(&wr);
-  FD_SET(s->fd, &rd);
-
-  timo.tv_sec = 0;
-  timo.tv_usec = 0;
+  struct pollfd pfd = { .fd = s->fd };
+  pfd.events |= POLLIN;
 
  redo:
-  rv = select(s->fd+1, &rd, &wr, NULL, &timo);
+  rv = poll(&pfd, 1, 0);
 
   if ((rv < 0) && (errno == EINTR || errno == EAGAIN))
     goto redo;
@@ -1762,7 +1763,7 @@ sk_send_full(sock *s, unsigned len, struct iface *ifa,
  /* sk_read() and sk_write() are called from BFD's event loop */
 
 int
-sk_read(sock *s)
+sk_read(sock *s, int revents)
 {
   switch (s->type)
   {
@@ -1781,6 +1782,11 @@ sk_read(sock *s)
       {
 	if (errno != EINTR && errno != EAGAIN)
 	  s->err_hook(s, errno);
+	else if (errno == EAGAIN && !(revents & POLLIN))
+	{
+	  log(L_ERR "Got EAGAIN from read when revents=%x (without POLLIN)", revents);
+	  s->err_hook(s, 0);
+	}
       }
       else if (!c)
 	s->err_hook(s, 0);
@@ -1845,6 +1851,20 @@ sk_write(sock *s)
     }
     return 0;
   }
+}
+
+void
+sk_err(sock *s, int revents)
+{
+  int se = 0, sse = sizeof(se);
+  if (revents & POLLERR)
+    if (getsockopt(s->fd, SOL_SOCKET, SO_ERROR, &se, &sse) < 0)
+    {
+      log(L_ERR "IO: Socket error: SO_ERROR: %m");
+      se = 0;
+    }
+
+  s->err_hook(s, se);
 }
 
 void
@@ -2047,62 +2067,63 @@ static int short_loops = 0;
 void
 io_loop(void)
 {
-  fd_set rd, wr;
-  struct timeval timo;
+  int poll_tout;
   time_t tout;
-  int hi, events;
+  int nfds, events, pout;
   sock *s;
   node *n;
+  int fdmax = 256;
+  struct pollfd *pfd = xmalloc(fdmax * sizeof(struct pollfd));
 
   watchdog_start1();
-  sock_recalc_fdsets_p = 1;
   for(;;)
     {
       events = ev_run_list(&global_event_list);
+    timers:
       update_times();
       tout = tm_first_shot();
       if (tout <= now)
 	{
 	  tm_shot();
-	  continue;
+	  goto timers;
 	}
-      timo.tv_sec = events ? 0 : MIN(tout - now, 3);
-      timo.tv_usec = 0;
+      poll_tout = (events ? 0 : MIN(tout - now, 3)) * 1000; /* Time in milliseconds */
 
       io_close_event();
 
-      if (sock_recalc_fdsets_p)
-	{
-	  sock_recalc_fdsets_p = 0;
-	  FD_ZERO(&rd);
-	  FD_ZERO(&wr);
-	}
-
-      hi = 0;
+      nfds = 0;
       WALK_LIST(n, sock_list)
 	{
+	  pfd[nfds] = (struct pollfd) { .fd = -1 }; /* everything other set to 0 by this */
 	  s = SKIP_BACK(sock, n, n);
 	  if (s->rx_hook)
 	    {
-	      FD_SET(s->fd, &rd);
-	      if (s->fd > hi)
-		hi = s->fd;
+	      pfd[nfds].fd = s->fd;
+	      pfd[nfds].events |= POLLIN;
 	    }
-	  else
-	    FD_CLR(s->fd, &rd);
 	  if (s->tx_hook && s->ttx != s->tpos)
 	    {
-	      FD_SET(s->fd, &wr);
-	      if (s->fd > hi)
-		hi = s->fd;
+	      pfd[nfds].fd = s->fd;
+	      pfd[nfds].events |= POLLOUT;
+	    }
+	  if (pfd[nfds].fd != -1)
+	    {
+	      s->index = nfds;
+	      nfds++;
 	    }
 	  else
-	    FD_CLR(s->fd, &wr);
+	    s->index = -1;
+
+	  if (nfds >= fdmax)
+	    {
+	      fdmax *= 2;
+	      pfd = xrealloc(pfd, fdmax * sizeof(struct pollfd));
+	    }
 	}
 
       /*
        * Yes, this is racy. But even if the signal comes before this test
-       * and entering select(), it gets caught on the next timer tick.
+       * and entering poll(), it gets caught on the next timer tick.
        */
 
       if (async_config_flag)
@@ -2127,18 +2148,18 @@ io_loop(void)
 	  continue;
 	}
 
-      /* And finally enter select() to find active sockets */
+      /* And finally enter poll() to find active sockets */
       watchdog_stop();
-      hi = select(hi+1, &rd, &wr, NULL, &timo);
+      pout = poll(pfd, nfds, poll_tout);
       watchdog_start();
 
-      if (hi < 0)
+      if (pout < 0)
 	{
 	  if (errno == EINTR || errno == EAGAIN)
 	    continue;
-	  die("select: %m");
+	  die("poll: %m");
 	}
-      if (hi)
+      if (pout)
 	{
 	  /* guaranteed to be non-empty */
 	  current_sock = SKIP_BACK(sock, n, HEAD(sock_list));
@@ -2146,23 +2167,29 @@ io_loop(void)
 	  while (current_sock)
 	    {
 	      sock *s = current_sock;
+	      if (s->index == -1)
+		{
+		  current_sock = sk_next(s);
+		  goto next;
+		}
+
 	      int e;
 	      int steps;
 
 	      steps = MAX_STEPS;
-	      if ((s->type >= SK_MAGIC) && FD_ISSET(s->fd, &rd) && s->rx_hook)
+	      if (s->fast_rx && (pfd[s->index].revents & POLLIN) && s->rx_hook)
 		do
 		  {
 		    steps--;
 		    io_log_event(s->rx_hook, s->data);
-		    e = sk_read(s);
+		    e = sk_read(s, pfd[s->index].revents);
 		    if (s != current_sock)
 		      goto next;
 		  }
 		while (e && s->rx_hook && steps);
 
 	      steps = MAX_STEPS;
-	      if (FD_ISSET(s->fd, &wr))
+	      if (pfd[s->index].revents & POLLOUT)
 		do
 		  {
 		    steps--;
@@ -2172,6 +2199,7 @@ io_loop(void)
 		      goto next;
 		  }
 		while (e && steps);
+
 	      current_sock = sk_next(s);
 	    next: ;
 	    }
@@ -2189,19 +2217,31 @@ io_loop(void)
 	  while (current_sock && count < MAX_RX_STEPS)
 	    {
 	      sock *s = current_sock;
-	      int e UNUSED;
+	      if (s->index == -1)
+		{
+		  current_sock = sk_next(s);
+		  goto next2;
+		}
 
-	      if ((s->type < SK_MAGIC) && FD_ISSET(s->fd, &rd) && s->rx_hook)
+	      if (!s->fast_rx && (pfd[s->index].revents & POLLIN) && s->rx_hook)
 		{
 		  count++;
 		  io_log_event(s->rx_hook, s->data);
-		  e = sk_read(s);
+		  sk_read(s, pfd[s->index].revents);
 		  if (s != current_sock)
-		      goto next2;
+		    goto next2;
 		}
+
+	      if (pfd[s->index].revents & (POLLHUP | POLLERR))
+		{
+		  sk_err(s, pfd[s->index].revents);
+		    goto next2;
+		}
+
 	      current_sock = sk_next(s);
 	    next2: ;
 	    }
+
 
 	  stored_sock = current_sock;
 	}

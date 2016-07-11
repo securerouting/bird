@@ -79,6 +79,10 @@ pm_format(struct f_path_mask *p, buffer *buf)
       buffer_puts(buf, "* ");
       break;
 
+    case PM_ASN_RANGE:
+      buffer_print(buf, "%u..%u ", p->val, p->val2);
+      break;
+
     case PM_ASN_EXPR:
       buffer_print(buf, "%u ", f_eval_asn((struct f_inst *) p->val));
       break;
@@ -159,12 +163,23 @@ val_compare(struct f_val v1, struct f_val v2)
 }
 
 static int
-pm_path_same(struct f_path_mask *m1, struct f_path_mask *m2)
+pm_same(struct f_path_mask *m1, struct f_path_mask *m2)
 {
   while (m1 && m2)
   {
-    if ((m1->kind != m2->kind) || (m1->val != m2->val))
+    if (m1->kind != m2->kind)
       return 0;
+
+    if (m1->kind == PM_ASN_EXPR)
+    {
+      if (!i_same((struct f_inst *) m1->val, (struct f_inst *) m2->val))
+	return 0;
+    }
+    else
+    {
+      if ((m1->val != m2->val) || (m1->val2 != m2->val2))
+	return 0;
+    }
 
     m1 = m1->next;
     m2 = m2->next;
@@ -195,7 +210,7 @@ val_same(struct f_val v1, struct f_val v2)
 
   switch (v1.type) {
   case T_PATH_MASK:
-    return pm_path_same(v1.val.path_mask, v2.val.path_mask);
+    return pm_same(v1.val.path_mask, v2.val.path_mask);
   case T_PATH:
   case T_CLIST:
   case T_ECLIST:
@@ -462,7 +477,7 @@ static int f_flags;
 
 static inline void f_rte_cow(void)
 {
-  *f_rte = rte_cow(*f_rte); 
+  *f_rte = rte_cow(*f_rte);
 }
 
 /*
@@ -471,26 +486,22 @@ static inline void f_rte_cow(void)
 static void
 f_rta_cow(void)
 {
-  if ((*f_rte)->attrs->aflags & RTAF_CACHED) {
+  if (!rta_is_cached((*f_rte)->attrs))
+    return;
 
-    /* Prepare to modify rte */
-    f_rte_cow();
+  /* Prepare to modify rte */
+  f_rte_cow();
 
-    /* Store old rta to free it later */
-    f_old_rta = (*f_rte)->attrs;
+  /* Store old rta to free it later, it stores reference from rte_cow() */
+  f_old_rta = (*f_rte)->attrs;
 
-    /* 
-     * Alloc new rta, do shallow copy and update rte. Fields eattrs
-     * and nexthops of rta are shared with f_old_rta (they will be
-     * copied when the cached rta will be obtained at the end of
-     * f_run()), also the lock of hostentry is inherited (we suppose
-     * hostentry is not changed by filters).
-     */
-    rta *ra = lp_alloc(f_pool, sizeof(rta));
-    memcpy(ra, f_old_rta, sizeof(rta));
-    ra->aflags = 0;
-    (*f_rte)->attrs = ra;
-  }
+  /*
+   * Get shallow copy of rta. Fields eattrs and nexthops of rta are shared
+   * with f_old_rta (they will be copied when the cached rta will be obtained
+   * at the end of f_run()), also the lock of hostentry is inherited (we
+   * suppose hostentry is not changed by filters).
+   */
+  (*f_rte)->attrs = rta_do_cow((*f_rte)->attrs, f_pool);
 }
 
 static struct tbf rl_runtime_err = TBF_DEFAULT_LOG_LIMITS;
@@ -516,6 +527,9 @@ static struct tbf rl_runtime_err = TBF_DEFAULT_LOG_LIMITS;
 #define ACCESS_RTE \
   do { if (!f_rte) runtime("No route to access"); } while (0)
 
+#define BITFIELD_MASK(what) \
+  (1u << (what->a2.i >> 24))
+
 /**
  * interpret
  * @what: filter to interpret
@@ -526,7 +540,7 @@ static struct tbf rl_runtime_err = TBF_DEFAULT_LOG_LIMITS;
  * Each instruction has 4 fields: code (which is instruction code),
  * aux (which is extension to instruction code, typically type),
  * arg1 and arg2 - arguments. Depending on instruction, arguments
- * are either integers, or pointers to instruction trees. Common 
+ * are either integers, or pointers to instruction trees. Common
  * instructions like +, that have two expressions as arguments use
  * TWOARGS macro to get both of them evaluated.
  *
@@ -585,7 +599,7 @@ interpret(struct f_inst *what)
     default: runtime( "Usage of unknown type" );
     }
     break;
-    
+
   case '&':
   case '|':
     ARG(v1, a1.p);
@@ -625,7 +639,7 @@ interpret(struct f_inst *what)
 
       if (v1.type == T_INT) {
 	ipv4_used = 0; key = v1.val.i;
-      } 
+      }
       else if (v1.type == T_QUAD) {
 	ipv4_used = 1; key = v1.val.i;
       }
@@ -724,7 +738,7 @@ interpret(struct f_inst *what)
 #endif
       runtime( "Assigning to variable of incompatible type" );
     }
-    *vp = v2; 
+    *vp = v2;
     break;
 
     /* some constants have value in a2, some in *a1.p, strange. */
@@ -864,12 +878,14 @@ interpret(struct f_inst *what)
     ACCESS_RTE;
     {
       eattr *e = NULL;
+      u16 code = what->a2.i;
+
       if (!(f_flags & FF_FORCE_TMPATTR))
-	e = ea_find( (*f_rte)->attrs->eattrs, what->a2.i );
-      if (!e) 
-	e = ea_find( (*f_tmp_attrs), what->a2.i );
+	e = ea_find((*f_rte)->attrs->eattrs, code);
+      if (!e)
+	e = ea_find((*f_tmp_attrs), code);
       if ((!e) && (f_flags & FF_FORCE_TMPATTR))
-	e = ea_find( (*f_rte)->attrs->eattrs, what->a2.i );
+	e = ea_find((*f_rte)->attrs->eattrs, code);
 
       if (!e) {
 	/* A special case: undefined int_set looks like empty int_set */
@@ -878,8 +894,9 @@ interpret(struct f_inst *what)
 	  res.val.ad = adata_empty(f_pool, 0);
 	  break;
 	}
+
 	/* The same special case for ec_set */
-	else if ((what->aux & EAF_TYPE_MASK) == EAF_TYPE_EC_SET) {
+	if ((what->aux & EAF_TYPE_MASK) == EAF_TYPE_EC_SET) {
 	  res.type = T_ECLIST;
 	  res.val.ad = adata_empty(f_pool, 0);
 	  break;
@@ -912,6 +929,10 @@ interpret(struct f_inst *what)
         res.type = T_PATH;
 	res.val.ad = e->u.ptr;
 	break;
+      case EAF_TYPE_BITFIELD:
+	res.type = T_BOOL;
+	res.val.i = !!(e->u.data & BITFIELD_MASK(what));
+	break;
       case EAF_TYPE_INT_SET:
 	res.type = T_CLIST;
 	res.val.ad = e->u.ptr;
@@ -933,13 +954,15 @@ interpret(struct f_inst *what)
     ONEARG;
     {
       struct ea_list *l = lp_alloc(f_pool, sizeof(struct ea_list) + sizeof(eattr));
+      u16 code = what->a2.i;
 
       l->next = NULL;
       l->flags = EALF_SORTED;
       l->count = 1;
-      l->attrs[0].id = what->a2.i;
+      l->attrs[0].id = code;
       l->attrs[0].flags = 0;
       l->attrs[0].type = what->aux | EAF_ORIGINATED;
+
       switch (what->aux & EAF_TYPE_MASK) {
       case EAF_TYPE_INT:
 	if (v1.type != T_INT)
@@ -977,6 +1000,26 @@ interpret(struct f_inst *what)
 	if (v1.type != T_PATH)
 	  runtime( "Setting path attribute to non-path value" );
 	l->attrs[0].u.ptr = v1.val.ad;
+	break;
+      case EAF_TYPE_BITFIELD:
+	if (v1.type != T_BOOL)
+	  runtime( "Setting bit in bitfield attribute to non-bool value" );
+	{
+	  /* First, we have to find the old value */
+	  eattr *e = NULL;
+	  if (!(f_flags & FF_FORCE_TMPATTR))
+	    e = ea_find((*f_rte)->attrs->eattrs, code);
+	  if (!e)
+	    e = ea_find((*f_tmp_attrs), code);
+	  if ((!e) && (f_flags & FF_FORCE_TMPATTR))
+	    e = ea_find((*f_rte)->attrs->eattrs, code);
+	  u32 data = e ? e->u.data : 0;
+
+	  if (v1.val.i)
+	    l->attrs[0].u.data = data | BITFIELD_MASK(what);
+	  else
+	    l->attrs[0].u.data = data & ~BITFIELD_MASK(what);;
+	}
 	break;
       case EAF_TYPE_INT_SET:
 	if (v1.type != T_CLIST)
@@ -1063,6 +1106,14 @@ interpret(struct f_inst *what)
     res.type = T_INT;
     res.val.i = as;
     break;
+  case P('a','L'):	/* Get last ASN from non-aggregated part of AS PATH */
+    ONEARG;
+    if (v1.type != T_PATH)
+      runtime( "AS path expected" );
+
+    res.type = T_INT;
+    res.val.i = as_path_get_last_nonaggregated(v1.val.ad);
+    break;
   case 'r':
     ONEARG;
     res = v1;
@@ -1073,7 +1124,7 @@ interpret(struct f_inst *what)
     res = interpret(what->a2.p);
     if (res.type == T_RETURN)
       return res;
-    res.type &= ~T_RETURN;    
+    res.type &= ~T_RETURN;
     break;
   case P('c','v'):	/* Clear local variables */
     for (sym = what->a1.p; sym != NULL; sym = sym->aux2)
@@ -1090,7 +1141,7 @@ interpret(struct f_inst *what)
 	  debug( "No else statement?\n");
 	  break;
 	}
-      }	
+      }
       /* It is actually possible to have t->data NULL */
 
       res = interpret(t->data);
@@ -1184,10 +1235,10 @@ interpret(struct f_inst *what)
 	  runtime("Can't add set");
 	else if (!arg_set)
 	  res.val.ad = int_set_add(f_pool, v1.val.ad, n);
-	else 
+	else
 	  res.val.ad = int_set_union(f_pool, v1.val.ad, v2.val.ad);
 	break;
-      
+
       case 'd':
 	if (!arg_set)
 	  res.val.ad = int_set_del(f_pool, v1.val.ad, n);
@@ -1209,7 +1260,7 @@ interpret(struct f_inst *what)
     {
       /* Extended community list */
       int arg_set = 0;
-      
+
       /* v2.val is either EC or EC-set */
       if ((v2.type == T_SET) && eclist_set_type(v2.val.t))
 	arg_set = 1;
@@ -1226,10 +1277,10 @@ interpret(struct f_inst *what)
 	  runtime("Can't add set");
 	else if (!arg_set)
 	  res.val.ad = ec_set_add(f_pool, v1.val.ad, v2.val.ec);
-	else 
+	else
 	  res.val.ad = ec_set_union(f_pool, v1.val.ad, v2.val.ad);
 	break;
-      
+
       case 'd':
 	if (!arg_set)
 	  res.val.ad = ec_set_del(f_pool, v1.val.ad, v2.val.ec);
@@ -1353,7 +1404,7 @@ i_same(struct f_inst *f1, struct f_inst *f2)
     }
     break;
 
-  case 'c': 
+  case 'c':
     switch (f1->aux) {
 
     case T_PREFIX_SET:
@@ -1381,7 +1432,7 @@ i_same(struct f_inst *f1, struct f_inst *f2)
       return 0;
     break;
 
-  case 'V': 
+  case 'V':
     if (strcmp((char *) f1->a2.p, (char *) f2->a2.p))
       return 0;
     break;
@@ -1399,22 +1450,23 @@ i_same(struct f_inst *f1, struct f_inst *f2)
   case 'r': ONEARG; break;
   case P('c','p'): ONEARG; break;
   case P('c','a'): /* Call rewriting trickery to avoid exponential behaviour */
-             ONEARG; 
+             ONEARG;
 	     if (!i_same(f1->a2.p, f2->a2.p))
-	       return 0; 
+	       return 0;
 	     f2->a2.p = f1->a2.p;
 	     break;
-  case P('c','v'): break; /* internal instruction */ 
+  case P('c','v'): break; /* internal instruction */
   case P('S','W'): ONEARG; if (!same_tree(f1->a2.p, f2->a2.p)) return 0; break;
   case P('i','M'): TWOARGS; break;
   case P('A','p'): TWOARGS; break;
   case P('C','a'): TWOARGS; break;
   case P('a','f'):
-  case P('a','l'): ONEARG; break;
+  case P('a','l'):
+  case P('a','L'): ONEARG; break;
   case P('R','C'):
     TWOARGS;
     /* Does not really make sense - ROA check resuls may change anyway */
-    if (strcmp(((struct f_inst_roa_check *) f1)->rtc->name, 
+    if (strcmp(((struct f_inst_roa_check *) f1)->rtc->name,
 	       ((struct f_inst_roa_check *) f2)->rtc->name))
       return 0;
     break;
@@ -1497,6 +1549,30 @@ f_run(struct filter *filter, struct rte **rte, struct ea_list **tmp_attrs, struc
   }
   DBG( "done (%u)\n", res.val.i );
   return res.val.i;
+}
+
+/* TODO: perhaps we could integrate f_eval(), f_eval_rte() and f_run() */
+
+struct f_val
+f_eval_rte(struct f_inst *expr, struct rte **rte, struct linpool *tmp_pool)
+{
+  struct ea_list *tmp_attrs = NULL;
+
+  f_rte = rte;
+  f_old_rta = NULL;
+  f_tmp_attrs = &tmp_attrs;
+  f_pool = tmp_pool;
+  f_flags = 0;
+
+  LOG_BUFFER_INIT(f_buf);
+
+  /* Note that in this function we assume that rte->attrs is private / uncached */
+  struct f_val res = interpret(expr);
+
+  /* Hack to include EAF_TEMP attributes to the main list */
+  (*rte)->attrs->eattrs = ea_append(tmp_attrs, (*rte)->attrs->eattrs);
+
+  return res;
 }
 
 struct f_val
