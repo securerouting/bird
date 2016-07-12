@@ -320,6 +320,8 @@ void bgp_get_route_info(struct rte *, byte *buf, struct ea_list *attrs);
 inline static void bgp_attach_attr_ip(struct ea_list **to, struct linpool *pool, unsigned attr, ip_addr a)
 { *(ip_addr *) bgp_attach_attr_wa(to, pool, attr, sizeof(ip_addr)) = a; }
 
+unsigned int encode_bgpsec_attr(struct  bgp_conn  *conn, ea_list *attr_list, byte *w, int remains, struct prefix *nlri_prefix);
+
 /* packets.c */
 
 void mrt_dump_bgp_state_change(struct bgp_conn *conn, unsigned old, unsigned new);
