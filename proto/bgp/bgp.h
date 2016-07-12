@@ -303,11 +303,7 @@ static inline void set_next_hop(byte *b, ip_addr addr) { ((ip_addr *) b)[0] = ad
 
 void bgp_attach_attr(struct ea_list **to, struct linpool *pool, unsigned attr, uintptr_t val);
 byte *bgp_attach_attr_wa(struct ea_list **to, struct linpool *pool, unsigned attr, unsigned len);
-<<<<<<< HEAD
 struct rta *bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len, struct linpool *pool, byte * nlri, int nlri_len);
-=======
-struct rta *bgp_decode_attrs(struct bgp_conn *conn, byte *a, uint len, struct linpool *pool, int mandatory);
->>>>>>> f1f39bb9d8e2260fe181240dd8194b06bdcfb54f
 int bgp_get_attr(struct eattr *e, byte *buf, int buflen);
 int bgp_rte_better(struct rte *, struct rte *);
 int bgp_rte_mergable(rte *pri, rte *sec);
@@ -318,11 +314,7 @@ void bgp_init_bucket_table(struct bgp_proto *);
 void bgp_free_bucket(struct bgp_proto *p, struct bgp_bucket *buck);
 void bgp_init_prefix_table(struct bgp_proto *p, u32 order);
 void bgp_free_prefix(struct bgp_proto *p, struct bgp_prefix *bp);
-<<<<<<< HEAD
 unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, struct prefix *nlri_prefix);
-=======
-uint bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains);
->>>>>>> f1f39bb9d8e2260fe181240dd8194b06bdcfb54f
 void bgp_get_route_info(struct rte *, byte *buf, struct ea_list *attrs);
 
 inline static void bgp_attach_attr_ip(struct ea_list **to, struct linpool *pool, unsigned attr, ip_addr a)
