@@ -222,24 +222,24 @@ bgp_put_cap_as4(struct bgp_proto *p, byte *buf)
  * One indicates this router can send BGPSEC messages and
  * the other indicating it can receive BGPSEC messages 
  *
- *  Currently, this code doesn't differentiate in its
- *  configuration. It either supports sending/receiving BGPSEC
- *  messages or doesn't support BGPSEC */
+ *  Currently, this code doesn't differentiate direction in its
+ *  configuration. It either supports sending/receiving BGPsec
+ *  messages or doesn't support BGPsec */
 static byte *
 bgp_put_cap_bgpsec(struct bgp_conn *conn UNUSED, byte *buf)
 {
   /* can send bgpsec capability */
-  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BGPSEC */
+  *buf++ = BGPSEC_CAPABILITY;  /* XXX Arbitrary until RFC */
   *buf++ = 3;		       /* BGPSEC Capability length */
-           /* bgpsec version and capable of sending */
+           /* bgpsec version and capable of SENDING */
   *buf++ = ( (BGPSEC_VERSION << 4) | 0x08 ); 
   put_u16(buf, BGP_AF);  /* address family */
   buf = buf + 2;
 
   /* can receive bgpsec capability */
-  *buf++ = BGPSEC_CAPABILITY;  /* XXX Capability 72: best guess, BGPSEC */
+  *buf++ = BGPSEC_CAPABILITY;  /* XXX Arbitrary until RFC */
   *buf++ = 3;		       /* BGPSEC Capability length */
-           /* bgpsec version and capable of receiving bgpsec  */
+           /* bgpsec version and capable of RECEIVING */
   *buf++ = ( (BGPSEC_VERSION << 4) | 0x00 ); 
   put_u16(buf, BGP_AF);  /* address family */
   return buf + 2;
@@ -322,8 +322,8 @@ bgp_create_open(struct bgp_conn *conn, byte *buf)
   /* xxx */
   if (p->cf->enable_bgpsec) {
     cap = bgp_put_cap_bgpsec(conn, cap);
-    BGP_TRACE(D_PACKETS, "Added BGPSec capability: v%d",
-	      p->cf->enable_bgpsec, BGPSEC_VERSION, p->cf->enable_as4);
+    BGP_TRACE(D_PACKETS, "Added BGPSec capability: version %d",
+	      BGPSEC_VERSION);
   }
 #endif
   
@@ -1538,19 +1538,29 @@ bgp_do_rx_update(struct bgp_conn *conn,
 static void
 bgp_attach_next_hop(rta *a0, byte *x)
 {
-  ip_addr *nh = (ip_addr *) bgp_attach_attr_wa(&a0->eattrs, bgp_linpool, BA_NEXT_HOP, NEXT_HOP_LENGTH);
-  memcpy(nh, x+1, (*x <= sizeof(ip_addr) ? *x : sizeof(ip_addr)) );
-  ipa_ntoh(nh[0]);
+  struct eattr *nh_eattr = ea_find(a0->eattrs, EA_CODE(EAP_BGP, BA_NEXT_HOP));
+  ip_addr        *nh_ipa = 0;
+  
+  if ( !nh_eattr ) {
+    nh_ipa = (ip_addr *) bgp_attach_attr_wa(&a0->eattrs, bgp_linpool,
+					    BA_NEXT_HOP, NEXT_HOP_LENGTH);
+  }
+  else {
+    nh_ipa = (ip_addr *) nh_eattr->u.ptr->data;
+  }
+  
+  memcpy(nh_ipa, x+1, (*x <= sizeof(ip_addr) ? *x : sizeof(ip_addr)) );
+  ipa_ntoh(nh_ipa[0]);
 
 #ifdef IPv6
   /* We store received link local address in the other part of BA_NEXT_HOP eattr. */
   if (*x == 32)
     {
-      memcpy(nh+1, x+17, 16);
-      ipa_ntoh(nh[1]);
+      memcpy(nh_ipa+1, x+17, 16);
+      ipa_ntoh(nh_ipa[1]);
     }
   else
-    nh[1] = IPA_NONE;
+    nh_ipa[1] = IPA_NONE;
 #endif
 }
 
@@ -1660,20 +1670,19 @@ bgp_do_rx_update(struct bgp_conn *conn,
 #endif
     DO_NLRI(mp_reach)
       {
-	/* Create fake NEXT_HOP attribute, check IP addr length */
+	/* Create or overwrite NEXT_HOP attribute with MP_REACH next hop */
+	/* Check IP addr length */
 	if (len < 1 || (*x != 4 && *x != 16 && *x != 32) || len < *x + 2)
 	  { err = BGP_UPD_ERROR_OPT_ATTR; goto done; }
+
+	if (a0)
+	  bgp_attach_next_hop(a0, x);
 
 	/* Also ignore one reserved byte */
 	len -= *x + 2;
 	x   += *x + 2;
-	log(L_DEBUG "%s: bgp_do_rx_update: using MP_REACH: a0: %d, nlri_len: %d",
-	    p->p.name, a0, len);
-
-#ifdef IPV6
-	if (a0)
-	  bgp_attach_next_hop(a0, x);
-#endif
+	log(L_DEBUG "%s: bgp_do_rx_update: using MP_REACH: x: %I, len: %d",
+	    p->p.name, x, len);
       }
 
     if (a0 && ! bgp_set_next_hop(p, a0))

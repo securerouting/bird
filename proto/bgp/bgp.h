@@ -29,8 +29,9 @@ struct eattr;
 /* Not ifdef'd out because some of the constants are used by variables
  * needed by config.Y */
 #define BGPSEC_VERSION	            0
-/* currently capability is arbitrary number from private use */
-#define BGPSEC_CAPABILITY           212
+/* currently capability is arbitrary number from private use XXX needs
+   to change to private use 128-255 until have a real number */
+#define BGPSEC_CAPABILITY           72
 #define BGPSEC_SKI_LENGTH           20
 #define BGPSEC_ALGO_ID              1   /* XXX this needs to be changed */
 #define BGPSEC_MAX_SIG_LENGTH       80  
