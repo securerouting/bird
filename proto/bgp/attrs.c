@@ -2522,7 +2522,7 @@ bgp_remove_as4_attrs(struct bgp_proto *p, rta *a)
  */
 struct rta *
 bgp_decode_attrs(struct bgp_conn *conn, byte *attr, uint len, struct linpool *pool,
-                 int mandatory, byte *nlri, int nlri_len)
+                 byte *nlri, int nlri_len)
 {
   struct bgp_proto *bgp = conn->bgp;
   rta *a = lp_alloc(pool, sizeof(struct rta));
