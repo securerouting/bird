@@ -548,7 +548,6 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 {
   struct bgp_proto *p = conn->bgp;
   struct bgp_bucket *buck;
-  int size, second, rem_stored
   int size, second, rem_stored, wd_size = 0;
   int remains = bgp_max_packet_length(p) - BGP_HEADER_LENGTH - 4;
   byte *w, *w_stored, *tmp, *tstart;
@@ -559,8 +558,7 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
   int havePrefix = 0;
 #endif
 
-  put_u16(buf, 0);
-  w = buf+4;
+  w = buf+2;
 
   if ((buck = p->withdraw_bucket) && !EMPTY_LIST(buck->prefixes))
     {
@@ -570,8 +568,10 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
       wd_size = bgp_encode_prefix_noDequeue(p, w, buck, remains);
       w += wd_size;
       remains -= wd_size;
-      put_u16(buf, wd_size);
 #endif
+
+      w = w+2 ; /* skip path attrs length until it's known */
+
       /* create MP_UNREACH_NLRI attr */
       tmp = bgp_attach_attr_wa(&ea, bgp_linpool, BA_MP_UNREACH_NLRI, remains-8);
       *tmp++ = 0;
@@ -589,6 +589,11 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
       w += size;
       remains -= size;
      }
+  else {
+    w = w+2; /* skip path attrs length until it's known */
+  }
+
+  put_u16(buf, wd_size);
 
   if (remains >= 3072)  {
     while ((buck = (struct bgp_bucket *) HEAD(p->bucket_queue))->send_node.next)
@@ -619,7 +624,6 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	w += size;
 	remains -= size;
 
-#ifdef IPV6
 	/* Process NEXT_HOP. We have two addresses here in NEXT_HOP
 	   eattr. Really.  Unless NEXT_HOP was modified by filter */
 	nh = ea_find(buck->eattrs, EA_CODE(EAP_BGP, BA_NEXT_HOP));
@@ -627,6 +631,8 @@ bgp_create_update(struct bgp_conn *conn, byte *buf)
 	second = (nh->u.ptr->length == NEXT_HOP_LENGTH);
 	ipp = (ip_addr *) nh->u.ptr->data;
 	ip = ipp[0];
+
+#ifdef IPV6
 	ip_ll = IPA_NONE;
 
 	if (ipa_equal(ip, p->source_addr))
