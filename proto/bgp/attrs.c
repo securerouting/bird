@@ -435,7 +435,7 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
   /* XXX, only handling a single signature block, should handle 1 or 2 */
   /* get signature block pointer */
   byte   *sigBlock_p = bgpSec_p + secPath_len;
-  u16   sigBlock_len = get_u16(sigBlock_p);
+  /*  u16   sigBlock_len = get_u16(sigBlock_p); */ /* currently not needed */
   int         algoID = *(sigBlock_p + 2);
   byte *sigSegment_p = sigBlock_p + 3; /* skip length value and algo ID byte */
 
@@ -594,6 +594,8 @@ decode_bgpsec_attr(struct bgp_proto *bgp,
   memcpy(hash_p, &pxlen, 1); /* prefix length */
   hash_p++;
   int prefix_bytes = (pxlen + 7) / 8;
+  ipa_hton(prefix); /* DO_NLRI macro converts to host format, sigh,
+		     * convert back to net */
   memcpy(hash_p, &prefix, prefix_bytes); /* prefix */
   hash_p += prefix_bytes;
 
@@ -1178,7 +1180,9 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
   /* NLRI */
   *hash_p = nlri_prefix->len;
   hash_p++;
-  memcpy(hash_p, &(nlri_prefix->addr), pxBytes);
+  ip_addr netAddr = nlri_prefix->addr;
+  ipa_hton(netAddr);
+  memcpy(hash_p, &netAddr, pxBytes);
   hash_p += pxBytes;
 
   /* sign */
@@ -1318,6 +1322,8 @@ bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, stru
        * connection, do not add the AS_PATH attribute
        */
       if ( isBGPsec && p->cf->enable_bgpsec && (code == BA_AS_PATH) ) {
+	log(L_TRACE "%s:  BGPsec route: Dropping: %s",
+	    p->p.name, ba_code_to_string(code));
 	continue;
       }
 #endif
@@ -2449,6 +2455,8 @@ bgp_decode_attrs(struct bgp_conn *conn, byte *attr, unsigned int len,
                  struct linpool *pool,  byte *nlri, int nlri_len)
 {
   struct bgp_proto *bgp = conn->bgp;
+  bgp->mp_reach_len   = 0;
+  bgp->mp_reach_start = 0;
   rta *a = lp_alloc(pool, sizeof(struct rta));
   unsigned int flags, code, l, i, type;
   int errcode;

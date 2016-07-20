@@ -305,6 +305,9 @@ void bgp_free_bucket(struct bgp_proto *p, struct bgp_bucket *buck);
 void bgp_init_prefix_table(struct bgp_proto *p, u32 order);
 void bgp_free_prefix(struct bgp_proto *p, struct bgp_prefix *bp);
 unsigned int bgp_encode_attrs(struct bgp_proto *p, byte *w, ea_list *attrs, int remains, struct prefix *nlri_prefix);
+unsigned int encode_bgpsec_attr(struct  bgp_conn  *conn, ea_list *attr_list,
+				byte *w, int remains,
+				struct prefix *nlri_prefix);
 void bgp_get_route_info(struct rte *, byte *buf, struct ea_list *attrs);
 
 inline static void bgp_attach_attr_ip(struct ea_list **to, struct linpool *pool, unsigned attr, ip_addr a)
