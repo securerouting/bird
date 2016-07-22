@@ -37,12 +37,15 @@ struct eattr;
 #define BGPSEC_MAX_SIG_LENGTH       80  
  /* sig hash length is somewhat arbitrary, = 20 + MaxASPathLength*(28
     + max_sig_length).  As of 2016, max unique AS Path length found
-    live looks to be ~14.  This value will allowy for for a hash
+    live looks to be ~14.  This value will allow for for a hash
     buffer that can handle an AS path length ~47 long
  */
+#define BGPSEC_MAX_SIG_PATH_LENGTH  47
 #define BGPSEC_SIG_HASH_LENGTH      5120
-#define BGPSEC_MAX_INFO_ATTR_LENGTH 0    /* XXX this needs to be checked */
-#define BGPSEC_MAX_ORIG_PX_ARRAY    10 /* Max number of origination addresses */
+
+/* Max number of origination addresses, arbitrary value of a static
+   array size */
+#define BGPSEC_MAX_ORIG_PX_ARRAY    10
 
 struct bgp_config {
   struct proto_config c;

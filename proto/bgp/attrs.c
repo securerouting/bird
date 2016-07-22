@@ -286,12 +286,13 @@ bgp_format_cluster_list(eattr *a, byte *buf, int buflen)
    information and adds it to the rta struct. */
 /* The created as_path is used for local route determination and is
    removed before sending out bgpsec updates */
-int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpool *pool)
+int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len,
+			 struct linpool *pool)
 {  
-  ea_list *ea;
+  ea_list      *ea;
   struct adata *ad;
   byte *secp = secpath_p;
-  secp_len -= 2;
+  secp_len  -= 2;
 
   /* xxx how to handle memory allocation error? */
   ea = lp_alloc(pool, sizeof(ea_list) + sizeof(eattr));
@@ -305,7 +306,8 @@ int bgpsec_create_aspath(rta *route, byte *secpath_p, u16 secp_len, struct linpo
   ea->attrs[0].type  = EAF_TYPE_AS_PATH;
 
   /* calculate size of as_path from pcount */
-  u8 i, pcount = 0;
+  int i;
+  u8  pcount = 0;
   while ( (secp < (secpath_p + secp_len)) ) {
     pcount += *secp;
     secp += 6;
@@ -958,33 +960,38 @@ int is_bgpsec_route(struct bgp_config *config, ea_list *attrs, struct prefix *nl
 }
 
 
-u8 bgpsec_get_pcount(struct bgp_config *config, eattr *asPathAttr) {
+int bgpsec_get_pcount(struct bgp_config *config, eattr *asPathAttr,
+		      u8 *pcount) {
+  *pcount = 0;
 
-  if (config->bgpsec_local_pcount0)  return 0;
+  if (config->bgpsec_local_pcount0)   return 1;
 
   struct adata *ad = asPathAttr->u.ptr;
   byte     *asPath = ad->data;
   int         dLen = ad->length;
-  u8        pcount = 0;
 
   asPath++; /* skip AS_PATH type */
   u8 aspLen = *asPath++;
   u32   pAS = get_u32(asPath);
 
-  if ( config->local_as != pAS ) {
-    return -1;
+  /* Fail if there isn't at least on AS on the AS Path that matches
+   * the local AS */
+  if ( config->local_as != pAS ) { 
+    log(L_ERR "bgpsec_get_pcount: Local AS Does Not Match 1st Path AS L:%d P:%d",
+	config->local_as, pAS);
+    return 0;
   }
   
   while ( (config->local_as == pAS) &&
 	  (asPath < (ad->data + dLen)) &&
-	  (pcount < aspLen) )  {
-    pcount += 1;
-    asPath += 4;
-    pAS     = get_u32(asPath);
+	  (*pcount < aspLen) )  {
+    *pcount += 1;
+    asPath  += 4;
+    pAS      = get_u32(asPath);
   }
-  log(L_TRACE "bgpsec_get_pcount: %d", pcount);
+  log(L_TRACE "bgpsec_get_pcount: %d", *pcount);
 
-  return(pcount);
+  return 1;
 }
 
 
@@ -1097,10 +1104,10 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
 
   /* Add our own secure path segment */
   /* get pcount */
-  u8 pcount =  bgpsec_get_pcount(conn->bgp->cf, asPathAttr);
-  if ( 0 > pcount) {
-      log(L_ERR "encode_bgpsec_attr: Error: failed to get pcount");
-      return -1;
+  u8 pcount = 0;
+  if ( ! bgpsec_get_pcount(conn->bgp->cf, asPathAttr, &pcount) ) {
+    log(L_ERR "encode_bgpsec_attr: Error: failed to get pcount");
+    return -1;
   }
   /* pcount */
   *hash_p = pcount;
@@ -1194,7 +1201,7 @@ encode_bgpsec_attr(struct  bgp_conn  *conn,
 						  sigBuff, BGPSEC_MAX_SIG_LENGTH);
 
   if ( 1 >= signature_len )  {
-    log(L_ERR "encode_bgpsec_attr:%c: %d > %d, Signing Failed",
+    log(L_ERR "\nencode_bgpsec_attr:%c: %d > %d, *** SIGNING FAILED ***\n",
 	oMark, conn->bgp->local_as, conn->bgp->remote_as);
     return -1;
   }    
