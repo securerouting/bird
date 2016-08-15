@@ -1,3 +1,14 @@
+                             ------------
+			     !!! NOTE !!!
+                             ------------
+			     
+This is a special derived project of BIRD that is designed to support
+the BGPSEC protocol; at this time, this code has not been intregrated
+upstream.  Please see the README.bgpsec file for details.  The
+remainder of this file is the original BIRD README file.
+
+================================================================================
+
 		       BIRD Internet Routing Daemon
 
 		(c) 1998--2008  Martin Mares <mj@ucw.cz>
@@ -64,6 +75,7 @@ What do we support:
 	o  Static routes
 	o  Inter-table protocol
 	o  IPv6 router advertisements
+	o  Bidirectional Forwarding Detection (BFD)
 	o  Command-line interface (using the `birdc' client; to get
 	   some help, just press `?')
 	o  Soft reconfiguration -- no online commands for changing the

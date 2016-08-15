@@ -89,6 +89,7 @@ static char *class_names[] = {
 /**
  * log_commit - commit a log message
  * @class: message class information (%L_DEBUG to %L_BUG, see |lib/birdlib.h|)
+ * @buf: message to write
  *
  * This function writes a message prepared in the log buffer to the
  * log file (as specified in the configuration). The log buffer is
@@ -208,6 +209,7 @@ bug(const char *msg, ...)
 
   va_start(args, msg);
   vlog(L_BUG[0], msg, args);
+  va_end(args);
   abort();
 }
 
@@ -225,6 +227,7 @@ die(const char *msg, ...)
 
   va_start(args, msg);
   vlog(L_FATAL[0], msg, args);
+  va_end(args);
   exit(1);
 }
 
@@ -284,17 +287,18 @@ log_switch(int debug, list *l, char *new_syslog_name)
   current_log_list = l;
 
 #ifdef HAVE_SYSLOG
-  if (current_syslog_name && new_syslog_name &&
-      !strcmp(current_syslog_name, new_syslog_name))
+  char *old_syslog_name = current_syslog_name;
+  current_syslog_name = new_syslog_name;
+
+  if (old_syslog_name && new_syslog_name &&
+      !strcmp(old_syslog_name, new_syslog_name))
     return;
 
-  if (current_syslog_name)
+  if (old_syslog_name)
     closelog();
 
   if (new_syslog_name)
     openlog(new_syslog_name, LOG_CONS | LOG_NDELAY, LOG_DAEMON);
-
-  current_syslog_name = new_syslog_name;
 #endif
 }
 
